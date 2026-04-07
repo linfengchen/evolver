@@ -38,6 +38,7 @@ const { loadNarrativeSummary } = require('./gep/narrativeMemory');
 const { maybeReportIssue } = require('./gep/issueReporter');
 const { resolveStrategy } = require('./gep/strategy');
 const { expandSignals } = require('./gep/learningSignals');
+const { captureLocalState } = require('./gep/localStateAwareness');
 
 const REPO_ROOT = getRepoRoot();
 
@@ -163,9 +164,6 @@ function formatSessionLog(jsonlContent) {
       // Tool results (Claude Code / OpenClaw)
       const isToolResult = data.type === 'tool_result'
         || (data.message && data.message.role === 'toolResult');
-      // Codex function_call_output (nested in item)
-      const isCodexFnOutput = isCodexItem && data.item.type === 'function_call_output';
-
       if (isClaudeCode || isOpenClaw || isCursor) {
         const role = (
           (data.message && data.message.role) || data.role || data.type || 'unknown'
@@ -220,7 +218,7 @@ function formatSessionLog(jsonlContent) {
         const tool = data.tool_used || {};
         entry = `[TOOL: ${tool.name || 'unknown'}]`;
 
-      } else if (isToolResult || isCodexFnOutput) {
+      } else if (isToolResult) {
         let resContent = '';
         if (data.tool_result) {
           resContent = data.tool_result.output || JSON.stringify(data.tool_result);
@@ -365,61 +363,66 @@ function readCursorTranscripts() {
 }
 
 function readOpenClawSessions() {
-  if (!fs.existsSync(AGENT_SESSIONS_DIR)) return '';
-  const now = Date.now();
-  const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
-  const TARGET_BYTES = 120000;
-  const PER_SESSION_BYTES = 20000;
+  try {
+    if (!fs.existsSync(AGENT_SESSIONS_DIR)) return '';
+    const now = Date.now();
+    const ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+    const TARGET_BYTES = 120000;
+    const PER_SESSION_BYTES = 20000;
 
-  const sessionScope = getSessionScope();
+    const sessionScope = getSessionScope();
 
-  let files = fs
-    .readdirSync(AGENT_SESSIONS_DIR)
-    .filter(f => f.endsWith('.jsonl') && !f.includes('.lock'))
-    .map(f => {
-      try {
-        const st = fs.statSync(path.join(AGENT_SESSIONS_DIR, f));
-        return { name: f, time: st.mtime.getTime(), size: st.size };
-      } catch (e) {
-        return null;
+    let files = fs
+      .readdirSync(AGENT_SESSIONS_DIR)
+      .filter(f => f.endsWith('.jsonl') && !f.includes('.lock'))
+      .map(f => {
+        try {
+          const st = fs.statSync(path.join(AGENT_SESSIONS_DIR, f));
+          return { name: f, time: st.mtime.getTime(), size: st.size };
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(f => f && (now - f.time) < ACTIVE_WINDOW_MS)
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length === 0) return '';
+
+    let nonEvolverFiles = files.filter(f => !f.name.startsWith('evolver_hand_'));
+
+    if (sessionScope && nonEvolverFiles.length > 0) {
+      const scopeLower = sessionScope.toLowerCase();
+      const scopedFiles = nonEvolverFiles.filter(f => f.name.toLowerCase().includes(scopeLower));
+      if (scopedFiles.length > 0) {
+        nonEvolverFiles = scopedFiles;
+        console.log(`[SessionScope] Filtered to ${scopedFiles.length} session(s) matching scope "${sessionScope}".`);
+      } else {
+        console.log(`[SessionScope] No sessions match scope "${sessionScope}". Using all ${nonEvolverFiles.length} session(s) (fallback).`);
       }
-    })
-    .filter(f => f && (now - f.time) < ACTIVE_WINDOW_MS)
-    .sort((a, b) => b.time - a.time);
-
-  if (files.length === 0) return '';
-
-  let nonEvolverFiles = files.filter(f => !f.name.startsWith('evolver_hand_'));
-
-  if (sessionScope && nonEvolverFiles.length > 0) {
-    const scopeLower = sessionScope.toLowerCase();
-    const scopedFiles = nonEvolverFiles.filter(f => f.name.toLowerCase().includes(scopeLower));
-    if (scopedFiles.length > 0) {
-      nonEvolverFiles = scopedFiles;
-      console.log(`[SessionScope] Filtered to ${scopedFiles.length} session(s) matching scope "${sessionScope}".`);
-    } else {
-      console.log(`[SessionScope] No sessions match scope "${sessionScope}". Using all ${nonEvolverFiles.length} session(s) (fallback).`);
     }
-  }
 
-  const activeFiles = nonEvolverFiles.length > 0 ? nonEvolverFiles : files.slice(0, 1);
-  const maxSessions = Math.min(activeFiles.length, 6);
-  const sections = [];
-  let totalBytes = 0;
+    const activeFiles = nonEvolverFiles.length > 0 ? nonEvolverFiles : files.slice(0, 1);
+    const maxSessions = Math.min(activeFiles.length, 6);
+    const sections = [];
+    let totalBytes = 0;
 
-  for (let i = 0; i < maxSessions && totalBytes < TARGET_BYTES; i++) {
-    const f = activeFiles[i];
-    const bytesLeft = TARGET_BYTES - totalBytes;
-    const readSize = Math.min(PER_SESSION_BYTES, bytesLeft);
-    const raw = readRecentLog(path.join(AGENT_SESSIONS_DIR, f.name), readSize);
-    const formatted = formatSessionLog(raw);
-    if (formatted.trim()) {
-      sections.push(`--- SESSION (${f.name}) ---\n${formatted}`);
-      totalBytes += formatted.length;
+    for (let i = 0; i < maxSessions && totalBytes < TARGET_BYTES; i++) {
+      const f = activeFiles[i];
+      const bytesLeft = TARGET_BYTES - totalBytes;
+      const readSize = Math.min(PER_SESSION_BYTES, bytesLeft);
+      const raw = readRecentLog(path.join(AGENT_SESSIONS_DIR, f.name), readSize);
+      const formatted = formatSessionLog(raw);
+      if (formatted.trim()) {
+        sections.push(`--- SESSION (${f.name}) ---\n${formatted}`);
+        totalBytes += formatted.length;
+      }
     }
-  }
 
-  return sections.join('\n\n');
+    return sections.join('\n\n');
+  } catch (e) {
+    console.warn(`[OpenClawSessions] Read failed: ${e.message}`);
+    return '';
+  }
 }
 
 function readRealSessionLog() {
@@ -1258,6 +1261,14 @@ async function run() {
     syncDirective = 'Workspace sync: run skills/git-sync/sync.sh "Evolution: Workspace Sync"';
   }
 
+  let localStateSummary = '';
+  try {
+    localStateSummary = captureLocalState();
+  } catch (e) {
+    console.warn('[LocalState] Capture failed (non-fatal): ' + (e && e.message ? e.message : e));
+    localStateSummary = '(local state capture unavailable)';
+  }
+
   const genes = loadGenes();
   const capsules = loadCapsules();
   const recentEvents = (() => {
@@ -1638,10 +1649,25 @@ async function run() {
   });
 
   // Search-First Evolution: query Hub for reusable solutions before local reasoning.
+  // When problem-class signals are present, lower the threshold and extend timeout
+  // to maximize the chance of finding an ecosystem-proven solution (EvoMap-First).
   let hubHit = null;
   if (!skipHubCalls) {
     try {
-      hubHit = await hubSearch(signals, { timeoutMs: 8000 });
+      const problemSignals = ['log_error', 'recurring_error', 'capability_gap', 'perf_bottleneck', 'test_failure', 'deployment_issue'];
+      const hasProblemSignal = Array.isArray(signals) && signals.some(function (s) {
+        for (var pi = 0; pi < problemSignals.length; pi++) {
+          if (s === problemSignals[pi] || (typeof s === 'string' && s.startsWith('errsig:'))) return true;
+        }
+        return false;
+      });
+      const hubSearchOpts = hasProblemSignal
+        ? { timeoutMs: 12000, threshold: 0.55 }
+        : { timeoutMs: 8000 };
+      if (hasProblemSignal) {
+        console.log('[EvoMap-First] Problem signals detected -- expanding Hub search (threshold=0.55, timeout=12s).');
+      }
+      hubHit = await hubSearch(signals, hubSearchOpts);
       if (hubHit && hubHit.hit) {
         console.log(`[SearchFirst] Hub hit: asset=${hubHit.asset_id}, score=${hubHit.score}, mode=${hubHit.mode}`);
       } else {
@@ -1977,6 +2003,9 @@ Runtime state:
 - Memory size: ${memorySize} bytes
 - Skills available (if any):
 ${fileList || '[skills directory not found]'}
+
+Local State (ALREADY CONFIGURED -- do NOT duplicate):
+${localStateSummary}
 
 Notes:
 - ${reviewNote}
