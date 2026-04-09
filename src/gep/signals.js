@@ -233,6 +233,7 @@ function _extractLLM(corpus) {
   try {
     var getHubUrl = require('./a2aProtocol').getHubUrl;
     var getHubNodeSecret = require('./a2aProtocol').getHubNodeSecret;
+    var getNodeId = require('./a2aProtocol').getNodeId;
     var hubUrl = getHubUrl();
     var nodeSecret = getHubNodeSecret();
     if (!hubUrl || !nodeSecret) return [];
@@ -241,60 +242,42 @@ function _extractLLM(corpus) {
     var postData = JSON.stringify({
       corpus_summary: summary,
       signal_types: OPPORTUNITY_SIGNALS,
+      sender_id: getNodeId() || undefined,
     });
 
-    var parsedUrl;
-    try { parsedUrl = new (require('url').URL)(hubUrl + '/a2a/signal/analyze'); }
-    catch (_) { return []; }
+    var url = hubUrl + '/a2a/signal/analyze';
 
-    var mod = parsedUrl.protocol === 'https:' ? require('https') : require('http');
-    var result = null;
-    var done = false;
+    // Use execSync + curl for truly synchronous HTTP. Node's http.request() is
+    // async and its callbacks cannot fire inside a synchronous spin-wait loop
+    // because execSync blocks the event loop.
+    var curlCmd = 'curl -s -m 10 -X POST'
+      + ' -H "Content-Type: application/json"'
+      + ' -H "Authorization: Bearer ' + nodeSecret + '"'
+      + ' -d ' + JSON.stringify(postData).replace(/'/g, "'\\''")
+      + ' ' + JSON.stringify(url);
 
-    var req = mod.request({
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port,
-      path: parsedUrl.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-        'Authorization': 'Bearer ' + nodeSecret,
-      },
-      timeout: 8000,
-    }, function (res) {
-      var body = '';
-      res.on('data', function (chunk) { body += chunk; });
-      res.on('end', function () {
-        try {
-          var parsed = JSON.parse(body);
-          if (Array.isArray(parsed.signals)) {
-            result = parsed.signals.filter(function (s) {
-              return typeof s === 'string' && s.length > 0 && s.length < 200;
-            }).slice(0, 10);
-          }
-        } catch (_) {}
-        done = true;
+    var execSync = require('child_process').execSync;
+    var stdout = '';
+    try {
+      stdout = execSync(curlCmd, {
+        timeout: 12000,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf8',
       });
-    });
-
-    req.on('error', function () { done = true; });
-    req.on('timeout', function () { req.destroy(); done = true; });
-    req.write(postData);
-    req.end();
-
-    // Non-blocking wait: the HTTP request runs asynchronously via Node event loop.
-    // Since evolution cycles are sequential and the result is optional, we spin briefly.
-    var startMs = Date.now();
-    var spins = 0;
-    while (!done && (Date.now() - startMs) < 8500 && spins < 85) {
-      try {
-        require('child_process').execSync('sleep 0.1', { timeout: 200, windowsHide: true, stdio: 'ignore' });
-      } catch (_) {}
-      spins++;
+    } catch (_) {
+      return [];
     }
 
-    return Array.isArray(result) ? result : [];
+    if (!stdout || typeof stdout !== 'string') return [];
+
+    var parsed = JSON.parse(stdout);
+    if (Array.isArray(parsed.signals)) {
+      return parsed.signals.filter(function (s) {
+        return typeof s === 'string' && s.length > 0 && s.length < 200;
+      }).slice(0, 10);
+    }
+    return [];
   } catch (e) {
     return [];
   }
