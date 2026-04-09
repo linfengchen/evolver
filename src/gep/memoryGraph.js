@@ -425,7 +425,16 @@ function recordHypothesis({
 
 function hasErrorSignal(signals) {
   const list = Array.isArray(signals) ? signals : [];
-  return list.includes('log_error');
+  // Check for any signal that indicates an active error state.
+  // The original implementation only checked for 'log_error', missing common
+  // error indicators like 'error', 'exception', 'failed', and errsig: entries.
+  const ERROR_INDICATORS = ['log_error', 'error', 'exception', 'failed', 'unstable'];
+  for (const sig of list) {
+    const s = String(sig).toLowerCase();
+    if (ERROR_INDICATORS.some(ind => s === ind)) return true;
+    if (s.startsWith('errsig:')) return true;
+  }
+  return false;
 }
 
 function recordAttempt({
