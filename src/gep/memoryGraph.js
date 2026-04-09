@@ -541,7 +541,10 @@ function inferOutcomeFromSignals({ prevHadError, currentHasError }) {
   if (prevHadError && !currentHasError) return { status: 'success', score: 0.85, note: 'error_cleared' };
   if (prevHadError && currentHasError) return { status: 'failed', score: 0.2, note: 'error_persisted' };
   if (!prevHadError && currentHasError) return { status: 'failed', score: 0.15, note: 'new_error_appeared' };
-  return { status: 'success', score: 0.6, note: 'stable_no_error' };
+  // No error before, no error now: we cannot confirm the gene actually helped.
+  // Record as neutral (score 0.5) to avoid inflating success counts for genes
+  // that were merely harmless rather than beneficial.
+  return { status: 'neutral', score: 0.5, note: 'stable_no_error' };
 }
 
 function clamp01(x) {

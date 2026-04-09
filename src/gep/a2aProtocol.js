@@ -1181,7 +1181,7 @@ function hubOpenEventStream(opts) {
 
 // ---------------------------------------------------------------------------
 // Managed SSE stream -- starts/stops alongside the heartbeat loop.
-// Events are buffered into _hubEvents for consumption by evolve.js.
+// Events are buffered into _latestHubEvents for consumption by evolve.js.
 // Falls back gracefully to poll-based events if SSE is unavailable.
 // ---------------------------------------------------------------------------
 
@@ -1208,8 +1208,7 @@ function startEventStream() {
     try {
       var parsed = JSON.parse(ev.data);
       if (parsed && parsed.type) {
-        if (!_hubEvents) _hubEvents = [];
-        _hubEvents.push(parsed);
+        _latestHubEvents.push(parsed);
       }
     } catch (e) {}
   };

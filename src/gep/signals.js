@@ -13,6 +13,9 @@ var OPPORTUNITY_SIGNALS = [
   'force_innovation_after_repair_loop',
   'tool_bypass',
   'curriculum_target',
+  'issue_already_resolved',
+  'openclaw_self_healed',
+  'empty_cycle_loop_detected',
 ];
 
 function hasOpportunitySignal(signals) {

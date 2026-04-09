@@ -159,15 +159,12 @@ function scoreGeneLearning(gene, signals, envFingerprint) {
 // Formula: intensity = 1 / sqrt(Ne) where Ne = effective population size.
 // This replaces the binary driftEnabled flag with a continuous spectrum.
 function computeDriftIntensity(opts) {
-  // If explicitly enabled/disabled, use that as the baseline
   const driftEnabled = !!(opts && opts.driftEnabled);
 
-  // Effective population size: active gene count in the pool
   const effectivePopulationSize = opts && Number.isFinite(Number(opts.effectivePopulationSize))
     ? Number(opts.effectivePopulationSize)
     : null;
 
-  // If no Ne provided, fall back to gene pool size
   const genePoolSize = opts && Number.isFinite(Number(opts.genePoolSize))
     ? Number(opts.genePoolSize)
     : null;
@@ -175,17 +172,12 @@ function computeDriftIntensity(opts) {
   const ne = effectivePopulationSize || genePoolSize || null;
 
   if (driftEnabled) {
-    // Explicit drift: use moderate-to-high intensity
     return ne && ne > 1 ? Math.min(1, 1 / Math.sqrt(ne) + 0.3) : 0.7;
   }
 
-  if (ne != null && ne > 0) {
-    // Population-dependent drift: small population = more drift
-    // Ne=1: intensity=1.0 (pure drift), Ne=25: intensity=0.2, Ne=100: intensity=0.1
-    return Math.min(1, 1 / Math.sqrt(ne));
-  }
-
-  return 0; // No drift info available, pure selection
+  // When drift is not explicitly enabled, return 0 -- pure selection.
+  // Population-dependent drift should only activate when the caller opts in.
+  return 0;
 }
 
 function selectGene(genes, signals, opts) {

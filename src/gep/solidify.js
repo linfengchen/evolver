@@ -688,6 +688,13 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
     finishedAt: validation.finishedAt,
   });
 
+  // Check intent-mutation alignment before computing success so that
+  // an intent_mismatch counts as a protocol violation.
+  const derivedIntent = intent || (mutation && mutation.category) || (geneUsed && geneUsed.category) || 'repair';
+  const intentMismatch =
+    intent && mutation && typeof mutation.category === 'string' && String(intent) !== String(mutation.category);
+  if (intentMismatch) protocolViolations.push(`intent_mismatch_with_mutation:${String(intent)}!=${String(mutation.category)}`);
+
   const success = constraintCheck.ok && validation.ok && protocolViolations.length === 0;
   const ts = nowIso();
   const outcomeStatus = success ? 'success' : 'failed';
@@ -730,11 +737,6 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
     lastRun && typeof lastRun.selected_capsule_id === 'string' && lastRun.selected_capsule_id.trim()
       ? String(lastRun.selected_capsule_id).trim() : null;
   const capsuleId = success ? selectedCapsuleId || buildCapsuleId(ts) : null;
-  const derivedIntent = intent || (mutation && mutation.category) || (geneUsed && geneUsed.category) || 'repair';
-  const intentMismatch =
-    intent && mutation && typeof mutation.category === 'string' && String(intent) !== String(mutation.category);
-  if (intentMismatch) protocolViolations.push(`intent_mismatch_with_mutation:${String(intent)}!=${String(mutation.category)}`);
-
   const sourceType = lastRun && lastRun.source_type ? String(lastRun.source_type) : 'generated';
   const reusedAssetId = lastRun && lastRun.reused_asset_id ? String(lastRun.reused_asset_id) : null;
   const reusedChainId = lastRun && lastRun.reused_chain_id ? String(lastRun.reused_chain_id) : null;

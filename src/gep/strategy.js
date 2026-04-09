@@ -120,8 +120,7 @@ function resolveStrategy(opts) {
   if (name === 'auto') name = 'balanced';
 
   var strategy = STRATEGIES[name] || STRATEGIES['balanced'];
-  strategy.name = name;
-  return strategy;
+  return Object.assign({}, strategy, { name: name });
 }
 
 function getStrategyNames() {
