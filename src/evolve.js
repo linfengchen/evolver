@@ -1780,7 +1780,8 @@ async function run() {
       if (pivotActions.length > 0) {
         var hasRequired = pivotActions.some(function (a) { return a.severity === 'required'; });
         var pivotSeverity = hasRequired ? 'required' : 'suggested';
-        var pivotEvals = Math.max.apply(null, pivotActions.map(function (a) { return a.evals_since_improvement || 0; }));
+        var rawPivotEvals = Math.max.apply(null, pivotActions.map(function (a) { return a.evals_since_improvement || 0; }));
+        var pivotEvals = Number.isFinite(rawPivotEvals) ? rawPivotEvals : 0;
         if (pivotSeverity === 'required') {
           if (!signals.includes('plateau_pivot_required')) signals.unshift('plateau_pivot_required');
           IS_RANDOM_DRIFT = true;
@@ -1790,7 +1791,9 @@ async function run() {
           try {
             var _fp = require('./gep/personality');
             _fp.forcePivot({ severity: 'required', evalsSinceImprovement: pivotEvals });
-          } catch (_fpErr) {}
+          } catch (_fpErr) {
+            console.warn('[HeartbeatAction] forcePivot failed (non-fatal):', _fpErr && _fpErr.message || _fpErr);
+          }
           console.log('[HeartbeatAction] Forced pivot: injecting plateau_pivot_required signal and enabling drift');
         } else {
           if (!signals.includes('plateau_pivot_suggested')) signals.unshift('plateau_pivot_suggested');
@@ -1800,7 +1803,9 @@ async function run() {
           try {
             var _fp2 = require('./gep/personality');
             _fp2.forcePivot({ severity: 'suggested', evalsSinceImprovement: pivotEvals });
-          } catch (_fpErr2) {}
+          } catch (_fpErr2) {
+            console.warn('[HeartbeatAction] forcePivot failed (non-fatal):', _fpErr2 && _fpErr2.message || _fpErr2);
+          }
           console.log('[HeartbeatAction] Pivot suggested: injecting plateau_pivot_suggested signal');
         }
       }
