@@ -90,7 +90,7 @@ try {
 const ARGS = process.argv.slice(2);
 const IS_REVIEW_MODE = ARGS.includes('--review');
 const IS_DRY_RUN = ARGS.includes('--dry-run');
-const IS_RANDOM_DRIFT = ARGS.includes('--drift') || String(process.env.RANDOM_DRIFT || '').toLowerCase() === 'true';
+let IS_RANDOM_DRIFT = ARGS.includes('--drift') || String(process.env.RANDOM_DRIFT || '').toLowerCase() === 'true';
 
 // Default Configuration
 const MEMORY_DIR = getMemoryDir();

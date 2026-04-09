@@ -671,15 +671,26 @@ function sendHeartbeat() {
         console.log('[EvolutionCircle] Active circle: ' + (data.circle_experience.circle_id || '?') + ' (' + (data.circle_experience.member_count || 0) + ' members)');
       }
       if (data.heartbeat_actions && typeof data.heartbeat_actions === 'object') {
-        _latestHeartbeatActions = data.heartbeat_actions;
+        if (_latestHeartbeatActions && Array.isArray(_latestHeartbeatActions.actions) && Array.isArray(data.heartbeat_actions.actions)) {
+          _latestHeartbeatActions.actions = _latestHeartbeatActions.actions.concat(data.heartbeat_actions.actions);
+          if (data.heartbeat_actions.metrics_snapshot) {
+            _latestHeartbeatActions.metrics_snapshot = data.heartbeat_actions.metrics_snapshot;
+          }
+        } else {
+          _latestHeartbeatActions = data.heartbeat_actions;
+        }
         var actionTypes = Array.isArray(data.heartbeat_actions.actions)
           ? data.heartbeat_actions.actions.map(function (a) { return a.type; }).join(', ')
           : 'none';
         console.log('[HeartbeatAction] Received actions: ' + actionTypes);
       }
       if (data.shared_knowledge_delta && typeof data.shared_knowledge_delta === 'object') {
-        _latestSharedKnowledgeDelta = data.shared_knowledge_delta;
-        if (data.shared_knowledge_delta.version) {
+        if (_latestSharedKnowledgeDelta && Array.isArray(_latestSharedKnowledgeDelta.entries) && Array.isArray(data.shared_knowledge_delta.entries)) {
+          _latestSharedKnowledgeDelta.entries = _latestSharedKnowledgeDelta.entries.concat(data.shared_knowledge_delta.entries);
+        } else {
+          _latestSharedKnowledgeDelta = data.shared_knowledge_delta;
+        }
+        if (Number.isFinite(Number(data.shared_knowledge_delta.version))) {
           _sharedKnowledgeVersion = data.shared_knowledge_delta.version;
         }
         var deltaCount = Array.isArray(data.shared_knowledge_delta.entries)

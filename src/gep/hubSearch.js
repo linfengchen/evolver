@@ -417,6 +417,9 @@ async function graftFromBreakthrough(snapshotId) {
       headers: buildHubHeaders(),
       signal: AbortSignal.timeout(10000),
     });
+    if (!res.ok) {
+      return { ok: false, error: `http_${res.status}` };
+    }
     const data = await res.json();
     if (data && data.status === 'ok' && data.snapshot) {
       console.log('[Graft] Received snapshot: ' + snapshotId +
@@ -424,10 +427,10 @@ async function graftFromBreakthrough(snapshotId) {
         ' score=' + (data.snapshot.score || '?'));
       return { ok: true, snapshot: data.snapshot };
     }
-    return { ok: false, error: data.error || 'snapshot_not_found' };
+    return { ok: false, error: (data && data.error) || 'snapshot_not_found' };
   } catch (err) {
     console.warn('[Graft] Failed to fetch snapshot:', err && err.message || err);
-    return { ok: false, error: err.message || 'fetch_failed' };
+    return { ok: false, error: (err && err.message) || 'fetch_failed' };
   }
 }
 
@@ -450,14 +453,17 @@ async function listGraftSnapshots(taskId) {
       headers: buildHubHeaders(),
       signal: AbortSignal.timeout(10000),
     });
+    if (!res.ok) {
+      return { ok: false, error: `http_${res.status}`, snapshots: [] };
+    }
     const data = await res.json();
     if (data && data.status === 'ok') {
       return { ok: true, best: data.best || null, snapshots: data.snapshots || [] };
     }
-    return { ok: false, error: data.error || 'unknown', snapshots: [] };
+    return { ok: false, error: (data && data.error) || 'unknown', snapshots: [] };
   } catch (err) {
     console.warn('[Graft] Failed to list snapshots:', err && err.message || err);
-    return { ok: false, error: err.message || 'fetch_failed', snapshots: [] };
+    return { ok: false, error: (err && err.message) || 'fetch_failed', snapshots: [] };
   }
 }
 
