@@ -1829,6 +1829,7 @@ async function run() {
       localEvalsSinceImprovement++;
     }
     if (localEvalsSinceImprovement >= PLATEAU_FORCE) {
+      IS_RANDOM_DRIFT = true;
       if (!plateauOverride || plateauOverride.severity !== 'required') {
         plateauOverride = { active: true, severity: 'required', evalsSinceImprovement: localEvalsSinceImprovement, source: 'local' };
         try {
@@ -1839,7 +1840,7 @@ async function run() {
         }
       }
       if (!signals.includes('plateau_pivot_required')) signals.unshift('plateau_pivot_required');
-      console.log('[Plateau] Local detection: ' + localEvalsSinceImprovement + ' consecutive non-improving evals -> FORCED PIVOT');
+      console.log('[Plateau] Local detection: ' + localEvalsSinceImprovement + ' consecutive non-improving evals -> FORCED PIVOT (drift enabled)');
     } else if (localEvalsSinceImprovement >= PLATEAU_SUGGEST && !plateauOverride) {
       plateauOverride = { active: true, severity: 'suggested', evalsSinceImprovement: localEvalsSinceImprovement, source: 'local' };
       if (!signals.includes('plateau_pivot_suggested')) signals.unshift('plateau_pivot_suggested');
