@@ -901,6 +901,92 @@ function checkAndAutoUpdate() {
   }
 }
 
+// --- Force Update: triggered by Hub when version is critically outdated ---
+function executeForceUpdate(forceUpdate) {
+  const requiredVersion = String(forceUpdate.required_version || '').replace(/^>=/, '');
+  console.log('[ForceUpdate] Starting multi-channel update (target: >=' + requiredVersion + ')');
+
+  function parseVer(v) {
+    var m = String(v || '').match(/(\d+)\.(\d+)\.(\d+)/);
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+  }
+  function isAtLeast(current, required) {
+    var c = parseVer(current), r = parseVer(required);
+    for (var i = 0; i < 3; i++) {
+      if (c[i] > r[i]) return true;
+      if (c[i] < r[i]) return false;
+    }
+    return true;
+  }
+  function getCurrentVersion() {
+    try {
+      var pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+      return pkg.version || '0.0.0';
+    } catch (_) { return '0.0.0'; }
+  }
+
+  // Channel 1: ClawHub
+  try {
+    var clawhubBin = null;
+    var candidates = ['clawhub', path.join(os.homedir(), '.npm-global/bin/clawhub'), '/usr/local/bin/clawhub'];
+    for (var ci = 0; ci < candidates.length; ci++) {
+      try {
+        if (candidates[ci] === 'clawhub') {
+          execSync(process.platform === 'win32' ? 'where clawhub' : 'which clawhub',
+            { stdio: 'ignore', timeout: 3000, windowsHide: true });
+          clawhubBin = 'clawhub';
+          break;
+        }
+        if (fs.existsSync(candidates[ci])) { clawhubBin = candidates[ci]; break; }
+      } catch (_) {}
+    }
+    if (clawhubBin) {
+      console.log('[ForceUpdate] Channel 1: ClawHub update...');
+      var out = execSync(clawhubBin + ' update evolver --force', {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60000, cwd: path.resolve(REPO_ROOT, '..'), windowsHide: true,
+      });
+      console.log('[ForceUpdate] ClawHub: ' + (out || '').trim().split('\n').pop());
+      var newVer = getCurrentVersion();
+      if (isAtLeast(newVer, requiredVersion)) {
+        console.log('[ForceUpdate] ClawHub update successful: ' + newVer);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn('[ForceUpdate] ClawHub failed:', e && e.message || e);
+  }
+
+  // Channel 2: npm
+  try {
+    console.log('[ForceUpdate] Channel 2: npm install...');
+    var npmCmd = 'npm install -g @evomap/evolver@latest';
+    execSync(npmCmd, {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120000, windowsHide: true,
+    });
+    var newVerNpm = getCurrentVersion();
+    if (isAtLeast(newVerNpm, requiredVersion)) {
+      console.log('[ForceUpdate] npm update successful: ' + newVerNpm);
+      return true;
+    }
+  } catch (e) {
+    console.warn('[ForceUpdate] npm failed:', e && e.message || e);
+  }
+
+  // Channel 3: GitHub release download
+  try {
+    var releaseUrl = forceUpdate.release_url;
+    if (releaseUrl) {
+      console.log('[ForceUpdate] Channel 3: GitHub release -- manual download required');
+      console.log('[ForceUpdate] Visit: ' + releaseUrl);
+    }
+  } catch (_) {}
+
+  console.warn('[ForceUpdate] All automatic channels exhausted. Current version: ' + getCurrentVersion());
+  return false;
+}
+
 function sleepMs(ms) {
   const t = Number(ms);
   const n = Number.isFinite(t) ? Math.max(0, t) : 0;
@@ -1763,6 +1849,25 @@ async function run() {
     }
   } catch (e) {
     console.warn('[SharedKnowledge] Consumption failed (non-fatal):', e && e.message || e);
+  }
+
+  // --- Force Update Check ---
+  try {
+    const { consumeForceUpdate } = require('./gep/a2aProtocol');
+    const forceUpdate = consumeForceUpdate();
+    if (forceUpdate) {
+      console.log('[ForceUpdate] Hub requires update to ' + (forceUpdate.required_version || 'latest'));
+      console.log('[ForceUpdate] Reason: ' + (forceUpdate.reason || 'unspecified'));
+      const updated = executeForceUpdate(forceUpdate);
+      if (updated) {
+        console.log('[ForceUpdate] Update complete. Exiting for restart...');
+        process.exit(78);
+      } else {
+        console.warn('[ForceUpdate] Update failed. Will retry next cycle.');
+      }
+    }
+  } catch (e) {
+    console.warn('[ForceUpdate] Check failed (non-fatal):', e && e.message || e);
   }
 
   // --- Heartbeat Actions: proactive knowledge externalization ---

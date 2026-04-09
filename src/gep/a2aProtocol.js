@@ -451,6 +451,7 @@ let _latestHubEvents = [];
 let _latestHeartbeatActions = null;
 let _latestSharedKnowledgeDelta = null;
 let _sharedKnowledgeVersion = 0;
+let _forceUpdatePending = null;
 let _pollInflight = false;
 let _cachedHubNodeSecret = null;
 let _cachedHubNodeSecretAt = 0;
@@ -700,6 +701,12 @@ function sendHeartbeat() {
           console.log('[SharedKnowledge] Received ' + deltaCount + ' delta entries (version: ' + _sharedKnowledgeVersion + ')');
         }
       }
+      if (data.force_update && typeof data.force_update === 'object') {
+        _forceUpdatePending = data.force_update;
+        console.log('[ForceUpdate] Hub requires update to ' +
+          (data.force_update.required_version || '?') +
+          ' -- reason: ' + (data.force_update.reason || 'unspecified'));
+      }
       if (data.has_pending_events) {
         _fetchHubEvents().catch(function (err) {
           console.warn('[Events] Poll failed:', err && err.message || err);
@@ -798,6 +805,16 @@ function consumeSharedKnowledgeDelta() {
 
 function getSharedKnowledgeVersion() {
   return _sharedKnowledgeVersion;
+}
+
+function consumeForceUpdate() {
+  var pending = _forceUpdatePending;
+  _forceUpdatePending = null;
+  return pending;
+}
+
+function getForceUpdate() {
+  return _forceUpdatePending;
 }
 
 /**
@@ -1266,6 +1283,8 @@ module.exports = {
   getHeartbeatActions,
   consumeSharedKnowledgeDelta,
   getSharedKnowledgeVersion,
+  consumeForceUpdate,
+  getForceUpdate,
   getHubEvents,
   consumeHubEvents,
   hubSelfProvision,
