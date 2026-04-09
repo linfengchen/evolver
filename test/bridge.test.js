@@ -95,11 +95,14 @@ describe('determineBridgeEnabled -- black-box via child_process', () => {
       const { determineBridgeEnabled } = require('./src/evolve');
       console.log(determineBridgeEnabled());
     `;
+    const cleanEnv = { ...process.env };
+    delete cleanEnv.EVOLVE_BRIDGE;
+    delete cleanEnv.OPENCLAW_WORKSPACE;
     return execFileSync(process.execPath, ['-e', script], {
       cwd: require('path').resolve(__dirname, '..'),
       encoding: 'utf8',
       timeout: 10000,
-      env: { ...process.env, EVOLVE_BRIDGE: undefined, OPENCLAW_WORKSPACE: undefined },
+      env: cleanEnv,
     }).trim();
   }
 

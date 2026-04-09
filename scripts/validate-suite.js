@@ -20,11 +20,16 @@ try {
     cwd: repoRoot,
     stdio: ['pipe', 'pipe', 'pipe'],
     timeout: 120000,
-    env: Object.assign({}, process.env, {
-      NODE_ENV: 'test',
-      EVOLVER_REPO_ROOT: repoRoot,
-      GEP_ASSETS_DIR: path.join(repoRoot, 'assets', 'gep'),
-    }),
+    env: (() => {
+      const e = Object.assign({}, process.env, {
+        NODE_ENV: 'test',
+        EVOLVER_REPO_ROOT: repoRoot,
+        GEP_ASSETS_DIR: path.join(repoRoot, 'assets', 'gep'),
+      });
+      delete e.EVOLVE_BRIDGE;
+      delete e.OPENCLAW_WORKSPACE;
+      return e;
+    })(),
   });
   const out = output.toString('utf8');
   const passMatch = out.match(/# pass (\d+)/);
