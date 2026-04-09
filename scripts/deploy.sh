@@ -132,7 +132,11 @@ echo "[1/$TOTAL_STEPS] Bumping version to $NEW_VERSION..."
 if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] sed -i \"s/\\\"version\\\": \\\"$CURRENT_VERSION\\\"/\\\"version\\\": \\\"$NEW_VERSION\\\"/\" package.json"
 else
-    sed -i "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" package.json
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" package.json
+    else
+        sed -i "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" package.json
+    fi
 fi
 
 # --- Step 2: Commit & push private-dev ---

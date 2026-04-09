@@ -24,8 +24,12 @@ function uniqStrings(list) {
 function hasErrorishSignal(signals) {
   const list = Array.isArray(signals) ? signals.map(s => String(s || '')) : [];
   if (list.includes('issue_already_resolved') || list.includes('openclaw_self_healed')) return false;
-  if (list.includes('log_error')) return true;
-  if (list.some(s => s.startsWith('errsig:') || s.startsWith('errsig_norm:'))) return true;
+  const ERROR_INDICATORS = ['log_error', 'error', 'exception', 'failed', 'unstable'];
+  for (const sig of list) {
+    const s = sig.toLowerCase();
+    if (ERROR_INDICATORS.some(ind => s === ind)) return true;
+    if (s.startsWith('errsig:') || s.startsWith('errsig_norm:')) return true;
+  }
   return false;
 }
 
@@ -37,6 +41,13 @@ var OPPORTUNITY_SIGNALS = [
   'capability_gap',
   'stable_success_plateau',
   'external_opportunity',
+  'recurring_error',
+  'unsupported_input_type',
+  'evolution_stagnation_detected',
+  'repair_loop_detected',
+  'force_innovation_after_repair_loop',
+  'tool_bypass',
+  'curriculum_target',
   'issue_already_resolved',
   'openclaw_self_healed',
   'empty_cycle_loop_detected',
