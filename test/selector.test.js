@@ -82,13 +82,24 @@ describe('selectGene', () => {
     assert.ok(result.driftIntensity >= 0 && result.driftIntensity <= 1);
   });
 
-  it('respects preferred gene id from memory graph', () => {
+  it('applies score multiplier for preferred gene from memory graph', () => {
+    // With signals ['error', 'protocol'], gene_repair matches 'error' and
+    // gene_optimize matches 'protocol' -- similar base scores.
+    // The 1.5x multiplier should boost gene_optimize enough to win.
     const result = selectGene(GENES, ['error', 'protocol'], {
       preferredGeneId: 'gene_optimize',
     });
-    // gene_optimize matches 'protocol' so it qualifies as a candidate
-    // With preference, it should be selected even if gene_repair scores higher
     assert.equal(result.selected.id, 'gene_optimize');
+  });
+
+  it('does not let multiplier override a much-higher-scoring gene', () => {
+    // With signals ['error', 'exception', 'failed'], gene_repair matches
+    // all 3 signals (score ~3+) while gene_optimize matches 0.
+    // gene_optimize should NOT win even with 1.5x preference.
+    const result = selectGene(GENES, ['error', 'exception', 'failed'], {
+      preferredGeneId: 'gene_optimize',
+    });
+    assert.equal(result.selected.id, 'gene_repair');
   });
 
   it('matches gene via baseName:snippet signal (user_feature_request:snippet)', () => {
