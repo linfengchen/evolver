@@ -1767,6 +1767,7 @@ async function run() {
 
   // --- Heartbeat Actions: proactive knowledge externalization ---
   let heartbeatActionContext = '';
+  let plateauOverride = null;
   try {
     const { consumeHeartbeatActions } = require('./gep/a2aProtocol');
     const hbActions = consumeHeartbeatActions();
@@ -1775,15 +1776,31 @@ async function run() {
         return '[HeartbeatAction:' + a.type + '] ' + (a.prompt || '');
       });
       heartbeatActionContext = '\n\n--- Hub Heartbeat Directives ---\n' + actionPrompts.join('\n\n') + '\n--- End Heartbeat Directives ---\n';
-      const hasPivot = hbActions.actions.some(function (a) { return a.type === 'pivot_check'; });
-      if (hasPivot) {
-        const pivotAction = hbActions.actions.find(function (a) { return a.type === 'pivot_check'; });
-        if (pivotAction && pivotAction.severity === 'required') {
+      const pivotActions = hbActions.actions.filter(function (a) { return a.type === 'pivot_check'; });
+      if (pivotActions.length > 0) {
+        var hasRequired = pivotActions.some(function (a) { return a.severity === 'required'; });
+        var pivotSeverity = hasRequired ? 'required' : 'suggested';
+        var pivotEvals = Math.max.apply(null, pivotActions.map(function (a) { return a.evals_since_improvement || 0; }));
+        if (pivotSeverity === 'required') {
           if (!signals.includes('plateau_pivot_required')) signals.unshift('plateau_pivot_required');
           IS_RANDOM_DRIFT = true;
+          if (!plateauOverride || plateauOverride.severity !== 'required') {
+            plateauOverride = { active: true, severity: 'required', evalsSinceImprovement: pivotEvals, source: 'hub' };
+          }
+          try {
+            var _fp = require('./gep/personality');
+            _fp.forcePivot({ severity: 'required', evalsSinceImprovement: pivotEvals });
+          } catch (_fpErr) {}
           console.log('[HeartbeatAction] Forced pivot: injecting plateau_pivot_required signal and enabling drift');
         } else {
           if (!signals.includes('plateau_pivot_suggested')) signals.unshift('plateau_pivot_suggested');
+          if (!plateauOverride) {
+            plateauOverride = { active: true, severity: 'suggested', evalsSinceImprovement: pivotEvals, source: 'hub' };
+          }
+          try {
+            var _fp2 = require('./gep/personality');
+            _fp2.forcePivot({ severity: 'suggested', evalsSinceImprovement: pivotEvals });
+          } catch (_fpErr2) {}
           console.log('[HeartbeatAction] Pivot suggested: injecting plateau_pivot_suggested signal');
         }
       }
@@ -1795,7 +1812,6 @@ async function run() {
   // --- Local Plateau Detection ---
   // Track consecutive non-improving evals using the evolution event history.
   // Complements Hub-side tracking (which uses Redis) for offline resilience.
-  let plateauOverride = null;
   try {
     const PLATEAU_SUGGEST = 5;
     const PLATEAU_FORCE = 10;
@@ -1808,22 +1824,24 @@ async function run() {
       localEvalsSinceImprovement++;
     }
     if (localEvalsSinceImprovement >= PLATEAU_FORCE) {
-      plateauOverride = { active: true, severity: 'required', evalsSinceImprovement: localEvalsSinceImprovement };
+      if (!plateauOverride || plateauOverride.severity !== 'required') {
+        plateauOverride = { active: true, severity: 'required', evalsSinceImprovement: localEvalsSinceImprovement, source: 'local' };
+        try {
+          var _lpf = require('./gep/personality');
+          _lpf.forcePivot({ severity: 'required', evalsSinceImprovement: localEvalsSinceImprovement });
+        } catch (e) {
+          console.warn('[Plateau] forcePivot failed (non-fatal):', e && e.message || e);
+        }
+      }
       if (!signals.includes('plateau_pivot_required')) signals.unshift('plateau_pivot_required');
       console.log('[Plateau] Local detection: ' + localEvalsSinceImprovement + ' consecutive non-improving evals -> FORCED PIVOT');
-      try {
-        const { forcePivot } = require('./gep/personality');
-        forcePivot({ severity: 'required', evalsSinceImprovement: localEvalsSinceImprovement });
-      } catch (e) {
-        console.warn('[Plateau] forcePivot failed (non-fatal):', e && e.message || e);
-      }
-    } else if (localEvalsSinceImprovement >= PLATEAU_SUGGEST) {
-      plateauOverride = { active: true, severity: 'suggested', evalsSinceImprovement: localEvalsSinceImprovement };
+    } else if (localEvalsSinceImprovement >= PLATEAU_SUGGEST && !plateauOverride) {
+      plateauOverride = { active: true, severity: 'suggested', evalsSinceImprovement: localEvalsSinceImprovement, source: 'local' };
       if (!signals.includes('plateau_pivot_suggested')) signals.unshift('plateau_pivot_suggested');
       console.log('[Plateau] Local detection: ' + localEvalsSinceImprovement + ' consecutive non-improving evals -> pivot suggested');
       try {
-        const { forcePivot } = require('./gep/personality');
-        forcePivot({ severity: 'suggested', evalsSinceImprovement: localEvalsSinceImprovement });
+        var _lpf2 = require('./gep/personality');
+        _lpf2.forcePivot({ severity: 'suggested', evalsSinceImprovement: localEvalsSinceImprovement });
       } catch (e) {
         console.warn('[Plateau] forcePivot failed (non-fatal):', e && e.message || e);
       }

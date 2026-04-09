@@ -671,30 +671,31 @@ function sendHeartbeat() {
         console.log('[EvolutionCircle] Active circle: ' + (data.circle_experience.circle_id || '?') + ' (' + (data.circle_experience.member_count || 0) + ' members)');
       }
       if (data.heartbeat_actions && typeof data.heartbeat_actions === 'object') {
-        if (_latestHeartbeatActions && Array.isArray(_latestHeartbeatActions.actions) && Array.isArray(data.heartbeat_actions.actions)) {
-          _latestHeartbeatActions.actions = _latestHeartbeatActions.actions.concat(data.heartbeat_actions.actions);
-          if (data.heartbeat_actions.metrics_snapshot) {
-            _latestHeartbeatActions.metrics_snapshot = data.heartbeat_actions.metrics_snapshot;
-          }
+        var newActions = Array.isArray(data.heartbeat_actions.actions) ? data.heartbeat_actions.actions : [];
+        if (_latestHeartbeatActions && Array.isArray(_latestHeartbeatActions.actions)) {
+          _latestHeartbeatActions.actions = _latestHeartbeatActions.actions.concat(newActions);
         } else {
-          _latestHeartbeatActions = data.heartbeat_actions;
+          _latestHeartbeatActions = { actions: newActions };
         }
-        var actionTypes = Array.isArray(data.heartbeat_actions.actions)
-          ? data.heartbeat_actions.actions.map(function (a) { return a.type; }).join(', ')
+        if (data.heartbeat_actions.metrics_snapshot) {
+          _latestHeartbeatActions.metrics_snapshot = data.heartbeat_actions.metrics_snapshot;
+        }
+        var actionTypes = newActions.length > 0
+          ? newActions.map(function (a) { return a.type; }).join(', ')
           : 'none';
         console.log('[HeartbeatAction] Received actions: ' + actionTypes);
       }
       if (data.shared_knowledge_delta && typeof data.shared_knowledge_delta === 'object') {
-        if (_latestSharedKnowledgeDelta && Array.isArray(_latestSharedKnowledgeDelta.entries) && Array.isArray(data.shared_knowledge_delta.entries)) {
-          _latestSharedKnowledgeDelta.entries = _latestSharedKnowledgeDelta.entries.concat(data.shared_knowledge_delta.entries);
+        var newEntries = Array.isArray(data.shared_knowledge_delta.entries) ? data.shared_knowledge_delta.entries : [];
+        if (_latestSharedKnowledgeDelta && Array.isArray(_latestSharedKnowledgeDelta.entries)) {
+          _latestSharedKnowledgeDelta.entries = _latestSharedKnowledgeDelta.entries.concat(newEntries);
         } else {
-          _latestSharedKnowledgeDelta = data.shared_knowledge_delta;
+          _latestSharedKnowledgeDelta = { entries: newEntries };
         }
         if (Number.isFinite(Number(data.shared_knowledge_delta.version))) {
           _sharedKnowledgeVersion = data.shared_knowledge_delta.version;
         }
-        var deltaCount = Array.isArray(data.shared_knowledge_delta.entries)
-          ? data.shared_knowledge_delta.entries.length : 0;
+        var deltaCount = newEntries.length;
         if (deltaCount > 0) {
           console.log('[SharedKnowledge] Received ' + deltaCount + ' delta entries (version: ' + _sharedKnowledgeVersion + ')');
         }
