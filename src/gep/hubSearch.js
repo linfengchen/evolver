@@ -396,6 +396,71 @@ async function hubSearch(signals, opts) {
   }
 }
 
+/**
+ * Graft a breakthrough snapshot from another node.
+ * Fetches the snapshot via the A2A graft endpoint and returns the
+ * Gene+Capsule for injection into the local asset store.
+ *
+ * @param {string} snapshotId - the snapshot to graft
+ * @returns {Promise<object>} { ok, snapshot, error }
+ */
+async function graftFromBreakthrough(snapshotId) {
+  const hubUrl = getHubUrl();
+  if (!hubUrl) return { ok: false, error: 'no_hub_url' };
+  if (!snapshotId) return { ok: false, error: 'no_snapshot_id' };
+
+  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/graft/' + encodeURIComponent(snapshotId);
+  try {
+    const { buildHubHeaders } = require('./a2aProtocol');
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: buildHubHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    if (data && data.status === 'ok' && data.snapshot) {
+      console.log('[Graft] Received snapshot: ' + snapshotId +
+        ' from node ' + (data.snapshot.source_node_id || '?') +
+        ' score=' + (data.snapshot.score || '?'));
+      return { ok: true, snapshot: data.snapshot };
+    }
+    return { ok: false, error: data.error || 'snapshot_not_found' };
+  } catch (err) {
+    console.warn('[Graft] Failed to fetch snapshot:', err && err.message || err);
+    return { ok: false, error: err.message || 'fetch_failed' };
+  }
+}
+
+/**
+ * List available snapshots for a task.
+ *
+ * @param {string} taskId
+ * @returns {Promise<object>} { ok, best, snapshots, error }
+ */
+async function listGraftSnapshots(taskId) {
+  const hubUrl = getHubUrl();
+  if (!hubUrl) return { ok: false, error: 'no_hub_url', snapshots: [] };
+  if (!taskId) return { ok: false, error: 'no_task_id', snapshots: [] };
+
+  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/graft/task/' + encodeURIComponent(taskId);
+  try {
+    const { buildHubHeaders } = require('./a2aProtocol');
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: buildHubHeaders(),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    if (data && data.status === 'ok') {
+      return { ok: true, best: data.best || null, snapshots: data.snapshots || [] };
+    }
+    return { ok: false, error: data.error || 'unknown', snapshots: [] };
+  } catch (err) {
+    console.warn('[Graft] Failed to list snapshots:', err && err.message || err);
+    return { ok: false, error: err.message || 'fetch_failed', snapshots: [] };
+  }
+}
+
 module.exports = {
   hubSearch,
   scoreHubResult,
@@ -404,4 +469,6 @@ module.exports = {
   getMinReuseScore,
   getHubUrl,
   clearCaches,
+  graftFromBreakthrough,
+  listGraftSnapshots,
 };

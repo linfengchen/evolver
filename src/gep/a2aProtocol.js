@@ -448,6 +448,9 @@ let _latestNoveltyHint = null;
 let _latestCapabilityGaps = [];
 let _pendingCommitmentUpdates = [];
 let _latestHubEvents = [];
+let _latestHeartbeatActions = null;
+let _latestSharedKnowledgeDelta = null;
+let _sharedKnowledgeVersion = 0;
 let _pollInflight = false;
 let _cachedHubNodeSecret = null;
 let _cachedHubNodeSecretAt = 0;
@@ -601,6 +604,10 @@ function sendHeartbeat() {
     }
   }
 
+  if (_sharedKnowledgeVersion > 0) {
+    meta.shared_knowledge_version = _sharedKnowledgeVersion;
+  }
+
   if (Object.keys(meta).length > 0) {
     bodyObj.meta = meta;
   }
@@ -662,6 +669,24 @@ function sendHeartbeat() {
       }
       if (data.circle_experience && typeof data.circle_experience === 'object') {
         console.log('[EvolutionCircle] Active circle: ' + (data.circle_experience.circle_id || '?') + ' (' + (data.circle_experience.member_count || 0) + ' members)');
+      }
+      if (data.heartbeat_actions && typeof data.heartbeat_actions === 'object') {
+        _latestHeartbeatActions = data.heartbeat_actions;
+        var actionTypes = Array.isArray(data.heartbeat_actions.actions)
+          ? data.heartbeat_actions.actions.map(function (a) { return a.type; }).join(', ')
+          : 'none';
+        console.log('[HeartbeatAction] Received actions: ' + actionTypes);
+      }
+      if (data.shared_knowledge_delta && typeof data.shared_knowledge_delta === 'object') {
+        _latestSharedKnowledgeDelta = data.shared_knowledge_delta;
+        if (data.shared_knowledge_delta.version) {
+          _sharedKnowledgeVersion = data.shared_knowledge_delta.version;
+        }
+        var deltaCount = Array.isArray(data.shared_knowledge_delta.entries)
+          ? data.shared_knowledge_delta.entries.length : 0;
+        if (deltaCount > 0) {
+          console.log('[SharedKnowledge] Received ' + deltaCount + ' delta entries (version: ' + _sharedKnowledgeVersion + ')');
+        }
       }
       if (data.has_pending_events) {
         _fetchHubEvents().catch(function (err) {
@@ -737,6 +762,30 @@ function getNoveltyHint() {
 
 function getCapabilityGaps() {
   return _latestCapabilityGaps;
+}
+
+/**
+ * Returns and clears pending heartbeat actions from Hub.
+ * Actions include reflect, consolidate, pivot_check.
+ */
+function consumeHeartbeatActions() {
+  var actions = _latestHeartbeatActions;
+  _latestHeartbeatActions = null;
+  return actions;
+}
+
+function getHeartbeatActions() {
+  return _latestHeartbeatActions;
+}
+
+function consumeSharedKnowledgeDelta() {
+  var delta = _latestSharedKnowledgeDelta;
+  _latestSharedKnowledgeDelta = null;
+  return delta;
+}
+
+function getSharedKnowledgeVersion() {
+  return _sharedKnowledgeVersion;
 }
 
 /**
@@ -1201,6 +1250,10 @@ module.exports = {
   buildHubHeaders,
   getNoveltyHint,
   getCapabilityGaps,
+  consumeHeartbeatActions,
+  getHeartbeatActions,
+  consumeSharedKnowledgeDelta,
+  getSharedKnowledgeVersion,
   getHubEvents,
   consumeHubEvents,
   hubSelfProvision,

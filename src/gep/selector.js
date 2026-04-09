@@ -194,16 +194,25 @@ function selectGene(genes, signals, opts) {
   const driftEnabled = !!(opts && opts.driftEnabled);
   const preferredGeneId = opts && typeof opts.preferredGeneId === 'string' ? opts.preferredGeneId : null;
 
+  // Plateau override: when active, bypass memory preferences and force high drift
+  const plateauOverride = opts && opts.plateauOverride ? opts.plateauOverride : null;
+
   // Diversity-directed drift: capability_gaps from Hub heartbeat
   const capabilityGaps = opts && Array.isArray(opts.capabilityGaps) ? opts.capabilityGaps : [];
   const noveltyScore = opts && Number.isFinite(Number(opts.noveltyScore)) ? Number(opts.noveltyScore) : null;
 
   // Compute continuous drift intensity based on effective population size
-  const driftIntensity = computeDriftIntensity({
+  let driftIntensity = computeDriftIntensity({
     driftEnabled: driftEnabled,
     effectivePopulationSize: opts && opts.effectivePopulationSize,
     genePoolSize: genesList.length,
   });
+
+  // Plateau override: force maximum drift when plateau is detected
+  if (plateauOverride && plateauOverride.active) {
+    driftIntensity = Math.max(driftIntensity, plateauOverride.severity === 'required' ? 1.0 : 0.7);
+  }
+
   const useDrift = driftEnabled || driftIntensity > 0.15;
 
   const DISTILLED_PREFIX = 'gene_distilled_';
@@ -223,7 +232,8 @@ function selectGene(genes, signals, opts) {
   if (scored.length === 0) return { selected: null, alternatives: [], driftIntensity: driftIntensity, driftMode: 'none' };
 
   // Memory graph preference: only override when the preferred gene is already a match candidate.
-  if (preferredGeneId) {
+  // Skip memory preference when plateau override is active to force exploration.
+  if (preferredGeneId && !(plateauOverride && plateauOverride.active)) {
     const preferred = scored.find(x => x.gene && x.gene.id === preferredGeneId);
     if (preferred && (useDrift || !bannedGeneIds.has(preferredGeneId))) {
       const rest = scored.filter(x => x.gene && x.gene.id !== preferredGeneId);
@@ -344,7 +354,7 @@ function banGenesFromFailedCapsules(failedCapsules, signals, existingBans) {
   return bans;
 }
 
-function selectGeneAndCapsule({ genes, capsules, signals, memoryAdvice, driftEnabled, failedCapsules, capabilityGaps, noveltyScore }) {
+function selectGeneAndCapsule({ genes, capsules, signals, memoryAdvice, driftEnabled, failedCapsules, capabilityGaps, noveltyScore, plateauOverride }) {
   const bannedGeneIds =
     memoryAdvice && memoryAdvice.bannedGeneIds instanceof Set ? memoryAdvice.bannedGeneIds : new Set();
   const preferredGeneId = memoryAdvice && memoryAdvice.preferredGeneId ? memoryAdvice.preferredGeneId : null;
@@ -361,6 +371,7 @@ function selectGeneAndCapsule({ genes, capsules, signals, memoryAdvice, driftEna
     driftEnabled: !!driftEnabled,
     capabilityGaps: Array.isArray(capabilityGaps) ? capabilityGaps : [],
     noveltyScore: Number.isFinite(Number(noveltyScore)) ? Number(noveltyScore) : null,
+    plateauOverride: plateauOverride || null,
   });
   const capsule = selectCapsule(capsules, signals);
   const selector = buildSelectorDecision({

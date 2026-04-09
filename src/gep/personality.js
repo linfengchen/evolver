@@ -365,6 +365,49 @@ function updatePersonalityStats({ personalityState, outcome, score, notes } = {}
   return { key, stats: cur };
 }
 
+/**
+ * Force a pivot in personality state when plateau is detected.
+ * Temporarily boosts creativity and risk_tolerance to maximum exploration mode.
+ * Returns the new personality state.
+ *
+ * @param {object} opts
+ * @param {string} opts.severity - 'suggested' or 'required'
+ * @param {number} opts.evalsSinceImprovement - how many evals without improvement
+ * @returns {object} { state, mutations }
+ */
+function forcePivot({ severity = 'suggested', evalsSinceImprovement = 0 } = {}) {
+  const model = loadPersonalityModel();
+  const base = normalizePersonalityState(model.current);
+  const mutations = [];
+
+  if (severity === 'required') {
+    mutations.push(
+      { type: 'PersonalityMutation', param: 'creativity', delta: +0.2, reason: 'forced_pivot_required (plateau ' + evalsSinceImprovement + ' evals)' },
+      { type: 'PersonalityMutation', param: 'risk_tolerance', delta: +0.15, reason: 'forced_pivot_exploration' }
+    );
+  } else {
+    mutations.push(
+      { type: 'PersonalityMutation', param: 'creativity', delta: +0.15, reason: 'pivot_suggested (plateau ' + evalsSinceImprovement + ' evals)' },
+      { type: 'PersonalityMutation', param: 'risk_tolerance', delta: +0.1, reason: 'pivot_exploration_nudge' }
+    );
+  }
+
+  const applied = applyPersonalityMutations(base, mutations);
+  model.current = applied.state;
+
+  model.history = Array.isArray(model.history) ? model.history : [];
+  model.history.push({
+    at: nowIso(),
+    key: personalityKey(applied.state),
+    outcome: 'pivot_' + severity,
+    score: null,
+    notes: 'Forced pivot after ' + evalsSinceImprovement + ' non-improving evals',
+  });
+
+  savePersonalityModel(model);
+  return { state: applied.state, mutations: applied.applied };
+}
+
 module.exports = {
   clamp01,
   defaultPersonalityState,
@@ -375,5 +418,6 @@ module.exports = {
   savePersonalityModel,
   selectPersonalityForRun,
   updatePersonalityStats,
+  forcePivot,
 };
 
