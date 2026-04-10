@@ -17,6 +17,7 @@ const {
   isValidProtocolMessage,
   unwrapAssetFromMessage,
   sendHeartbeat,
+  hubOpenEventStream,
 } = require('../src/gep/a2aProtocol');
 
 describe('protocol constants', () => {
@@ -195,5 +196,105 @@ describe('sendHeartbeat log touch', () => {
     var result = await sendHeartbeat();
     assert.ok(result.ok, 'heartbeat should succeed');
     assert.ok(fs.existsSync(logPath), 'evolver_loop.log should be created when missing');
+  });
+});
+
+describe('hubOpenEventStream', () => {
+  var originalHubUrl;
+  var originalNodeId;
+  var originalNodeSecret;
+  var originalEventSource;
+
+  before(() => {
+    originalHubUrl = process.env.A2A_HUB_URL;
+    originalNodeId = process.env.A2A_NODE_ID;
+    originalNodeSecret = process.env.A2A_NODE_SECRET;
+    originalEventSource = globalThis.EventSource;
+    process.env.A2A_HUB_URL = 'http://localhost:19999';
+    process.env.A2A_NODE_ID = 'test-node';
+  });
+
+  after(() => {
+    if (originalHubUrl === undefined) delete process.env.A2A_HUB_URL;
+    else process.env.A2A_HUB_URL = originalHubUrl;
+    if (originalNodeId === undefined) delete process.env.A2A_NODE_ID;
+    else process.env.A2A_NODE_ID = originalNodeId;
+    if (originalNodeSecret === undefined) delete process.env.A2A_NODE_SECRET;
+    else process.env.A2A_NODE_SECRET = originalNodeSecret;
+    if (originalEventSource === undefined) delete globalThis.EventSource;
+    else globalThis.EventSource = originalEventSource;
+  });
+
+  it('returns ok:false with no_hub_url when A2A_HUB_URL is unset', () => {
+    var saved = process.env.A2A_HUB_URL;
+    delete process.env.A2A_HUB_URL;
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, false);
+    assert.match(result.error, /no_hub_url/);
+    process.env.A2A_HUB_URL = saved;
+  });
+
+  it('returns ok:false when no EventSource is available', () => {
+    delete globalThis.EventSource;
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, false);
+    assert.match(result.error, /eventsource_not_available/);
+  });
+
+  it('uses globalThis.EventSource when available', () => {
+    var calledUrl = null;
+    var calledOpts = null;
+    globalThis.EventSource = function (url, opts) {
+      calledUrl = url;
+      calledOpts = opts;
+      this.close = function () {};
+    };
+
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, true);
+    assert.ok(calledUrl.includes('/a2a/events/stream?'), 'URL should contain stream path');
+    assert.ok(calledUrl.includes('node_id='), 'URL should contain node_id param');
+    delete globalThis.EventSource;
+  });
+
+  it('passes Authorization header when A2A_NODE_SECRET is set', () => {
+    var calledOpts = null;
+    globalThis.EventSource = function (url, opts) {
+      calledOpts = opts;
+      this.close = function () {};
+    };
+    process.env.A2A_NODE_SECRET = 'secret123';
+
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, true);
+    assert.equal(calledOpts.headers['Authorization'], 'Bearer secret123');
+
+    delete process.env.A2A_NODE_SECRET;
+    delete globalThis.EventSource;
+  });
+
+  it('close() calls eventSource.close()', () => {
+    var closed = false;
+    globalThis.EventSource = function () {
+      this.close = function () { closed = true; };
+    };
+
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, true);
+    result.close();
+    assert.ok(closed, 'eventSource.close() should have been called');
+    delete globalThis.EventSource;
+  });
+
+  it('returns ok:false when EventSource constructor throws', () => {
+    globalThis.EventSource = function () {
+      throw new Error('connection refused');
+    };
+
+    var result = hubOpenEventStream({});
+    assert.equal(result.ok, false);
+    assert.match(result.error, /eventsource_init_failed/);
+    assert.match(result.error, /connection refused/);
+    delete globalThis.EventSource;
   });
 });
