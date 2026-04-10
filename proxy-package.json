@@ -1,0 +1,39 @@
+{
+  "name": "@evomap/proxy",
+  "version": "0.1.0",
+  "description": "Local mailbox proxy for agent-to-hub communication via Evomap. Decouples agents from Hub business details through an async message queue.",
+  "main": "src/proxy/index.js",
+  "exports": {
+    ".": "./src/proxy/index.js",
+    "./store": "./src/proxy/mailbox/store.js",
+    "./transport": "./src/gep/mailboxTransport.js"
+  },
+  "files": [
+    "src/proxy/",
+    "src/gep/mailboxTransport.js"
+  ],
+  "scripts": {
+    "test": "node --test test/mailboxStore.test.js test/proxyServer.test.js test/proxySettings.test.js test/taskMonitor.test.js"
+  },
+  "keywords": [
+    "evomap",
+    "proxy",
+    "mailbox",
+    "agent",
+    "a2a",
+    "gep"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EvoMap/evolver"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "peerDependencies": {},
+  "publishConfig": {
+    "access": "public"
+  }
+}
