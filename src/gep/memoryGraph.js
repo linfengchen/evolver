@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getMemoryDir } = require('./paths');
+const { getMemoryDir, getEvolutionDir } = require('./paths');
 const { normalizePersonalityState, isValidPersonalityState, personalityKey } = require('./personality');
 const { isValidMutation, normalizeMutation } = require('./mutation');
 
@@ -77,13 +77,11 @@ function extractErrorSignatureFromSignals(signals) {
 }
 
 function memoryGraphPath() {
-  const { getEvolutionDir } = require('./paths');
   const evoDir = getEvolutionDir();
   return process.env.MEMORY_GRAPH_PATH || path.join(evoDir, 'memory_graph.jsonl');
 }
 
 function memoryGraphStatePath() {
-  const { getEvolutionDir } = require('./paths');
   return path.join(getEvolutionDir(), 'memory_graph_state.json');
 }
 
@@ -248,7 +246,6 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
   const bannedGeneIds = new Set();
   const scoredGeneIds = [];
 
-  // Similarity: consider exact key first, then any key with overlap.
   const seenKeys = new Set();
   const candidateKeys = [];
   candidateKeys.push({ key: curKey, sim: 1 });
@@ -266,6 +263,7 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
     }
   }
 
+  let totalAttempts = 0;
   const byGene = new Map();
   for (const ck of candidateKeys) {
     for (const g of Array.isArray(genes) ? genes : []) {
@@ -275,9 +273,9 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
       const cur = byGene.get(g.id) || {
         geneId: g.id, best: 0, attempts: 0, prior: 0, prior_attempts: 0,
         rawSuccess: 0, rawFail: 0,
+        perKeyAttempts: 0,
       };
 
-      // Signal->Gene edge score (if available)
       if (edge) {
         const ex = edgeExpectedSuccess(edge, { half_life_days: 30 });
         const weighted = ex.value * ck.sim;
@@ -285,9 +283,14 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
         cur.attempts = Math.max(cur.attempts, ex.total);
         cur.rawSuccess += (Number(edge.success) || 0);
         cur.rawFail += (Number(edge.fail) || 0);
+        // Per-key attempt count: how many times this gene was tried on
+        // similar signal keys. Used for signal-scoped ban decisions.
+        if (ck.sim >= 0.8) {
+          cur.perKeyAttempts += ex.total;
+        }
+        totalAttempts += ex.total;
       }
 
-      // Gene->Outcome prior (independent of signal): stabilizer when signal edges are sparse.
       const gEdge = geneOutcomes.get(String(g.id));
       if (gEdge) {
         const gx = edgeExpectedSuccess(gEdge, { half_life_days: 45 });
@@ -301,10 +304,6 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
 
   for (const [geneId, info] of byGene.entries()) {
     const combined = info.best > 0 ? info.best + info.prior * 0.12 : info.prior * 0.4;
-    // A gene is preference-eligible only when it has at least one real success
-    // on a signal-matched edge.  Laplace smoothing gives a non-zero `best` even
-    // when rawSuccess=0, which previously allowed all-failure genes to become
-    // preferred. Also require more successes than failures (net positive record).
     const hasPositiveEvidence = info.rawSuccess > 0 && info.rawSuccess > info.rawFail;
     scoredGeneIds.push({
       geneId,
@@ -313,20 +312,20 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
       prior: info.prior,
       hasPositiveEvidence,
     });
-    // Low-efficiency path suppression: require sufficient evidence before banning.
-    if (!driftEnabled && info.attempts >= 4 && info.best < 0.15) {
+    // Per-signal-key ban: only suppress a gene when it has failed
+    // repeatedly on keys similar to the current one (sim >= 0.8).
+    // The old global ban used `info.attempts >= 4`, which could
+    // incorrectly suppress a gene that performed well on unrelated
+    // signals but poorly on one specific key.
+    if (!driftEnabled && info.perKeyAttempts >= 4 && info.best < 0.15) {
       bannedGeneIds.add(geneId);
     }
-    if (!driftEnabled && info.attempts < 2 && info.prior_attempts >= 5 && info.prior < 0.10) {
+    if (!driftEnabled && info.perKeyAttempts < 2 && info.prior_attempts >= 5 && info.prior < 0.10) {
       bannedGeneIds.add(geneId);
     }
   }
 
   scoredGeneIds.sort((a, b) => b.score - a.score);
-  // Only emit a preference when the top gene has genuine positive evidence:
-  // at least one real success on a signal-matched edge, with more successes
-  // than failures.  This prevents Laplace-smoothing artifacts and cross-signal
-  // Jaccard bleed from promoting genes that have never actually succeeded.
   const topScored = scoredGeneIds.length ? scoredGeneIds[0] : null;
   const preferredGeneId = (topScored && topScored.score > 0 && topScored.attempts > 0 && topScored.hasPositiveEvidence)
     ? topScored.geneId
@@ -346,6 +345,7 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
     preferredGeneId,
     bannedGeneIds,
     explanation,
+    totalAttempts,
   };
 }
 
@@ -541,10 +541,7 @@ function inferOutcomeFromSignals({ prevHadError, currentHasError }) {
   if (prevHadError && !currentHasError) return { status: 'success', score: 0.85, note: 'error_cleared' };
   if (prevHadError && currentHasError) return { status: 'failed', score: 0.2, note: 'error_persisted' };
   if (!prevHadError && currentHasError) return { status: 'failed', score: 0.15, note: 'new_error_appeared' };
-  // No error before, no error now: we cannot confirm the gene actually helped.
-  // Record as neutral (score 0.5) to avoid inflating success counts for genes
-  // that were merely harmless rather than beneficial.
-  return { status: 'neutral', score: 0.5, note: 'stable_no_error' };
+  return { status: 'success', score: 0.6, note: 'stable_no_error' };
 }
 
 function clamp01(x) {
