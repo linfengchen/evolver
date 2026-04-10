@@ -1,4 +1,4 @@
-const { scoreTagOverlap } = require('./learningSignals');
+const { scoreTagOverlap, expandSignals } = require('./learningSignals');
 const { captureEnvFingerprint } = require('./envFingerprint');
 
 // ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@ function scoreGeneLearning(gene, signals, envFingerprint) {
 
   if (Array.isArray(gene.anti_patterns) && gene.anti_patterns.length > 0) {
     let overlapPenalty = 0;
-    const signalTags = new Set(require('./learningSignals').expandSignals(signals, ''));
+    const signalTags = new Set(expandSignals(signals, ''));
     const recentAntiPatterns = gene.anti_patterns.slice(-6);
     for (let j = 0; j < recentAntiPatterns.length; j++) {
       const anti = recentAntiPatterns[j];
@@ -153,11 +153,20 @@ function scoreGeneLearning(gene, signals, envFingerprint) {
   return Math.max(-1.5, Math.min(1.5, boost));
 }
 
-// Population-size-dependent drift intensity.
-// In population genetics, genetic drift is stronger in small populations (Ne).
-// driftIntensity: 0 = pure selection, 1 = pure drift (random).
-// Formula: intensity = 1 / sqrt(Ne) where Ne = effective population size.
-// This replaces the binary driftEnabled flag with a continuous spectrum.
+// Population-size-dependent drift intensity with adaptive decay.
+//
+// Base formula: intensity = 1 / sqrt(Ne) + offset
+// The offset decays from 0.3 toward near-zero as the memory graph
+// accumulates evidence, shifting mature pools from exploration to
+// exploitation. memoryEvidence (total attempts across genes) controls
+// the decay: once memoryEvidence >= Ne * MATURITY_ATTEMPTS_PER_GENE
+// the pool is considered mature and the constant offset drops to the
+// floor.  This addresses the drift-dominance finding where the fixed
+// 0.3 offset overwhelms memory graph guidance.
+const MATURITY_ATTEMPTS_PER_GENE = 10;
+const DRIFT_OFFSET_MAX = 0.3;
+const DRIFT_OFFSET_MIN = 0.02;
+
 function computeDriftIntensity(opts) {
   const driftEnabled = !!(opts && opts.driftEnabled);
 
@@ -172,11 +181,22 @@ function computeDriftIntensity(opts) {
   const ne = effectivePopulationSize || genePoolSize || null;
 
   if (driftEnabled) {
-    return ne && ne > 1 ? Math.min(1, 1 / Math.sqrt(ne) + 0.3) : 0.7;
+    if (!ne || ne <= 1) return 0.7;
+
+    const memoryEvidence = opts && Number.isFinite(Number(opts.memoryEvidence))
+      ? Number(opts.memoryEvidence) : 0;
+    const maturityThreshold = ne * MATURITY_ATTEMPTS_PER_GENE;
+    const maturity = maturityThreshold > 0
+      ? Math.min(1, memoryEvidence / maturityThreshold)
+      : 0;
+    const offset = DRIFT_OFFSET_MAX - (DRIFT_OFFSET_MAX - DRIFT_OFFSET_MIN) * maturity;
+    return Math.min(1, 1 / Math.sqrt(ne) + offset);
   }
 
-  // When drift is not explicitly enabled, return 0 -- pure selection.
-  // Population-dependent drift should only activate when the caller opts in.
+  if (ne != null && ne > 0) {
+    return Math.min(1, 1 / Math.sqrt(ne));
+  }
+
   return 0;
 }
 
@@ -198,6 +218,7 @@ function selectGene(genes, signals, opts) {
     driftEnabled: driftEnabled,
     effectivePopulationSize: opts && opts.effectivePopulationSize,
     genePoolSize: genesList.length,
+    memoryEvidence: opts && opts.memoryEvidence,
   });
 
   // Plateau override: force maximum drift when plateau is detected
@@ -351,21 +372,30 @@ function selectGeneAndCapsule({ genes, capsules, signals, memoryAdvice, driftEna
     memoryAdvice && memoryAdvice.bannedGeneIds instanceof Set ? memoryAdvice.bannedGeneIds : new Set();
   const preferredGeneId = memoryAdvice && memoryAdvice.preferredGeneId ? memoryAdvice.preferredGeneId : null;
 
+  // Extract total evidence count from memoryAdvice for adaptive drift decay.
+  const memoryEvidence = memoryAdvice && Number.isFinite(Number(memoryAdvice.totalAttempts))
+    ? Number(memoryAdvice.totalAttempts) : 0;
+
   const effectiveBans = banGenesFromFailedCapsules(
     Array.isArray(failedCapsules) ? failedCapsules : [],
     signals,
     bannedGeneIds
   );
 
-  const { selected, alternatives, driftIntensity } = selectGene(genes, signals, {
+  const { selected, alternatives, driftIntensity, driftMode } = selectGene(genes, signals, {
     bannedGeneIds: effectiveBans,
     preferredGeneId,
     driftEnabled: !!driftEnabled,
+    memoryEvidence,
     capabilityGaps: Array.isArray(capabilityGaps) ? capabilityGaps : [],
     noveltyScore: Number.isFinite(Number(noveltyScore)) ? Number(noveltyScore) : null,
     plateauOverride: plateauOverride || null,
   });
   const capsule = selectCapsule(capsules, signals);
+
+  const memoryUsed = !!(preferredGeneId && selected && selected.id === preferredGeneId);
+  const selectionPath = driftMode === 'selection' ? 'score_ranked' : driftMode;
+
   const selector = buildSelectorDecision({
     gene: selected,
     capsule,
@@ -374,16 +404,21 @@ function selectGeneAndCapsule({ genes, capsules, signals, memoryAdvice, driftEna
     memoryAdvice,
     driftEnabled,
     driftIntensity,
+    selectionPath,
+    memoryUsed,
   });
   return {
     selectedGene: selected,
     capsuleCandidates: capsule ? [capsule] : [],
     selector,
     driftIntensity,
+    selectionPath,
+    memoryUsed,
+    memoryEvidence,
   };
 }
 
-function buildSelectorDecision({ gene, capsule, signals, alternatives, memoryAdvice, driftEnabled, driftIntensity }) {
+function buildSelectorDecision({ gene, capsule, signals, alternatives, memoryAdvice, driftEnabled, driftIntensity, selectionPath, memoryUsed }) {
   const reason = [];
   if (gene) reason.push('signals match gene.signals_match');
   if (capsule) reason.push('capsule trigger matches signals');
@@ -399,11 +434,19 @@ function buildSelectorDecision({ gene, capsule, signals, alternatives, memoryAdv
   if (Number.isFinite(driftIntensity) && driftIntensity > 0) {
     reason.push(`drift_intensity: ${driftIntensity.toFixed(3)}`);
   }
+  if (selectionPath) {
+    reason.push(`selection_path: ${selectionPath}`);
+  }
+  if (memoryUsed) {
+    reason.push('memory_preference_followed: true');
+  }
 
   return {
     selected: gene ? gene.id : null,
     reason,
     alternatives: Array.isArray(alternatives) ? alternatives.map(g => g.id) : [],
+    selectionPath: selectionPath || 'unknown',
+    memoryUsed: !!memoryUsed,
   };
 }
 
@@ -416,5 +459,6 @@ module.exports = {
   scoreGeneSemantic,
   cosineSimilarity,
   tokenize,
+  computeDriftIntensity,
 };
 
