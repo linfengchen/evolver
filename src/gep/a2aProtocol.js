@@ -1161,8 +1161,18 @@ function hubOpenEventStream(opts) {
   var qs = 'node_id=' + encodeURIComponent(nodeId) + '&duration_ms=' + durationMs;
   var endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/events/stream?' + qs;
 
+  var EventSource = globalThis.EventSource;
+  if (!EventSource) {
+    try {
+      var _mod = require('eventsource');
+      EventSource = (typeof _mod === 'function') ? _mod : (_mod.EventSource || _mod.default);
+    } catch (e) {}
+  }
+  if (typeof EventSource !== 'function') {
+    return { ok: false, error: 'eventsource_not_available' };
+  }
+
   try {
-    var EventSource = require('eventsource');
     var esOpts = {};
     var secret = getHubNodeSecret();
     if (secret) {
@@ -1175,7 +1185,7 @@ function hubOpenEventStream(opts) {
       close: function () { es.close(); },
     };
   } catch (err) {
-    return { ok: false, error: 'eventsource_not_available: ' + (err.message || err) };
+    return { ok: false, error: 'eventsource_init_failed: ' + (err.message || err) };
   }
 }
 

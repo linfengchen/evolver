@@ -176,9 +176,20 @@ async function main() {
 
         // Start hub heartbeat (keeps node alive independently of evolution cycles)
         try {
-          const { startHeartbeat, startEventStream } = require('./src/gep/a2aProtocol');
-          startHeartbeat();
-          startEventStream();
+          if (process.env.EVOMAP_PROXY === '1' || process.env.A2A_TRANSPORT === 'mailbox') {
+            const { startProxy } = require('./src/proxy');
+            const proxyInfo = await startProxy({
+              hubUrl: process.env.A2A_HUB_URL,
+            });
+            console.log('[Proxy] Started on ' + proxyInfo.url);
+            const { registerMailboxTransport } = require('./src/gep/mailboxTransport');
+            registerMailboxTransport();
+            process.env.A2A_TRANSPORT = 'mailbox';
+          } else {
+            const { startHeartbeat, startEventStream } = require('./src/gep/a2aProtocol');
+            startHeartbeat();
+            startEventStream();
+          }
         } catch (e) {
           console.warn('[Heartbeat] Failed to start: ' + (e.message || e));
         }
