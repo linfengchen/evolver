@@ -200,6 +200,13 @@ function computeDriftIntensity(opts) {
   return 0;
 }
 
+const INPLACE_BLAST_MAX_FILES = 5;
+const INPLACE_BLAST_MAX_LINES = 100;
+
+function isInplaceGene(gene) {
+  return gene && gene.execution_mode === 'inplace';
+}
+
 function selectGene(genes, signals, opts) {
   const genesList = Array.isArray(genes) ? genes : [];
   const bannedGeneIds = opts && opts.bannedGeneIds ? opts.bannedGeneIds : new Set();
@@ -212,6 +219,9 @@ function selectGene(genes, signals, opts) {
   // Diversity-directed drift: capability_gaps from Hub heartbeat
   const capabilityGaps = opts && Array.isArray(opts.capabilityGaps) ? opts.capabilityGaps : [];
   const noveltyScore = opts && Number.isFinite(Number(opts.noveltyScore)) ? Number(opts.noveltyScore) : null;
+
+  // In-Place Gene preference: when enabled, prefer lightweight inplace genes
+  const preferInplace = !!(opts && opts.preferInplace);
 
   // Compute continuous drift intensity based on effective population size
   let driftIntensity = computeDriftIntensity({
@@ -263,6 +273,21 @@ function selectGene(genes, signals, opts) {
   // Low-efficiency suppression: do not repeat low-confidence paths unless drift is active.
   const filtered = useDrift ? scored : scored.filter(x => x.gene && !bannedGeneIds.has(x.gene.id));
   if (filtered.length === 0) return { selected: null, alternatives: scored.slice(0, 4).map(x => x.gene), driftIntensity: driftIntensity, driftMode: 'none' };
+
+  // TTT-inspired In-Place Gene preference: when the top scored gene is a full gene but
+  // an inplace gene scores within 70% of top, prefer the inplace gene for lower blast radius.
+  if (preferInplace && filtered.length > 1) {
+    const topScore = filtered[0].score;
+    const INPLACE_THRESHOLD = 0.7;
+    const inplaceIdx = filtered.findIndex(function (x) {
+      return x.gene && x.gene.execution_mode === 'inplace' && x.score >= topScore * INPLACE_THRESHOLD;
+    });
+    if (inplaceIdx > 0 && filtered[0].gene && filtered[0].gene.execution_mode !== 'inplace') {
+      const inplaceEntry = filtered[inplaceIdx];
+      filtered.splice(inplaceIdx, 1);
+      filtered.unshift(inplaceEntry);
+    }
+  }
 
   // Diversity-directed drift: when capability gaps are available, prefer genes that
   // cover gap areas instead of pure random selection. This replaces the blind
@@ -450,6 +475,69 @@ function buildSelectorDecision({ gene, capsule, signals, alternatives, memoryAdv
   };
 }
 
+// TTT-inspired: select multiple non-conflicting Genes for parallel execution
+// within a single evolution chunk, analogous to chunk-wise parallel weight updates.
+const CHUNK_MAX_GENES = 3;
+const CHUNK_CONFLICT_JACCARD_THRESHOLD = 0.3;
+
+function computeGeneConflict(geneA, geneB) {
+  const sigA = new Set(
+    (Array.isArray(geneA.signals_match) ? geneA.signals_match : []).map(function (s) { return String(s).toLowerCase(); })
+  );
+  const sigB = new Set(
+    (Array.isArray(geneB.signals_match) ? geneB.signals_match : []).map(function (s) { return String(s).toLowerCase(); })
+  );
+  if (sigA.size === 0 && sigB.size === 0) return 0;
+  if (sigA.size === 0 || sigB.size === 0) return 0;
+  let inter = 0;
+  for (const x of sigA) if (sigB.has(x)) inter++;
+  const union = sigA.size + sigB.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+function selectMultiGeneChunk({ genes, signals, memoryAdvice, driftEnabled, failedCapsules, capabilityGaps, noveltyScore, plateauOverride }) {
+  const primary = selectGeneAndCapsule({
+    genes, capsules: [], signals, memoryAdvice, driftEnabled,
+    failedCapsules, capabilityGaps, noveltyScore, plateauOverride,
+  });
+  if (!primary.selectedGene) return { genes: [], primary };
+
+  const genesList = Array.isArray(genes) ? genes : [];
+  const bannedGeneIds = memoryAdvice && memoryAdvice.bannedGeneIds instanceof Set
+    ? memoryAdvice.bannedGeneIds : new Set();
+  const envFingerprint = captureEnvFingerprint();
+
+  const scored = genesList
+    .filter(function (g) {
+      if (!g || g.type !== 'Gene' || !g.id) return false;
+      if (g.id === primary.selectedGene.id) return false;
+      if (bannedGeneIds.has(g.id)) return false;
+      return true;
+    })
+    .map(function (g) {
+      let s = scoreGene(g, signals);
+      s += scoreGeneLearning(g, signals, envFingerprint);
+      return { gene: g, score: s };
+    })
+    .filter(function (x) { return x.score > 0; })
+    .sort(function (a, b) { return b.score - a.score; });
+
+  const chunk = [primary.selectedGene];
+  for (let i = 0; i < scored.length && chunk.length < CHUNK_MAX_GENES; i++) {
+    const candidate = scored[i].gene;
+    let hasConflict = false;
+    for (let j = 0; j < chunk.length; j++) {
+      if (computeGeneConflict(candidate, chunk[j]) >= CHUNK_CONFLICT_JACCARD_THRESHOLD) {
+        hasConflict = true;
+        break;
+      }
+    }
+    if (!hasConflict) chunk.push(candidate);
+  }
+
+  return { genes: chunk, primary };
+}
+
 module.exports = {
   selectGeneAndCapsule,
   selectGene,
@@ -460,5 +548,9 @@ module.exports = {
   cosineSimilarity,
   tokenize,
   computeDriftIntensity,
+  isInplaceGene,
+  selectMultiGeneChunk,
+  INPLACE_BLAST_MAX_FILES,
+  INPLACE_BLAST_MAX_LINES,
 };
 

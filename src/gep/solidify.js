@@ -21,6 +21,7 @@ const {
 } = require('./policyCheck');
 const { extractSignals } = require('./signals');
 const { selectGene } = require('./selector');
+const { isInplaceGene, INPLACE_BLAST_MAX_FILES, INPLACE_BLAST_MAX_LINES } = require('./selector');
 const { isValidMutation, normalizeMutation, isHighRiskMutationAllowed, isHighRiskPersonality } = require('./mutation');
 const {
   isValidPersonalityState,
@@ -596,6 +597,16 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
 
   const ensured = ensureGene({ genes, selectedGene, signals, intent, dryRun: !!dryRun });
   const geneUsed = ensured.gene;
+
+  // TTT-inspired In-Place Gene fast path: tighter constraints but skip LLM review
+  const inplaceMode = isInplaceGene(geneUsed);
+  if (inplaceMode && geneUsed.constraints) {
+    geneUsed.constraints.max_files = Math.min(
+      geneUsed.constraints.max_files || INPLACE_BLAST_MAX_FILES,
+      INPLACE_BLAST_MAX_FILES
+    );
+  }
+
   const blast = computeBlastRadius({
     repoRoot,
     baselineUntracked: lastRun && Array.isArray(lastRun.baseline_untracked) ? lastRun.baseline_untracked : [],
@@ -628,6 +639,22 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
     changedFiles: blast.all_changed_files || blast.changed_files || [],
     baselineUntracked: lastRun && Array.isArray(lastRun.baseline_untracked) ? lastRun.baseline_untracked : [],
   });
+
+  // TTT-inspired: enforce stricter blast radius for inplace genes
+  if (inplaceMode) {
+    if (blast.files > INPLACE_BLAST_MAX_FILES) {
+      constraintCheck.violations.push(
+        `inplace_blast_files_exceeded: ${blast.files} > ${INPLACE_BLAST_MAX_FILES}`
+      );
+      constraintCheck.ok = false;
+    }
+    if (blast.lines > INPLACE_BLAST_MAX_LINES) {
+      constraintCheck.violations.push(
+        `inplace_blast_lines_exceeded: ${blast.lines} > ${INPLACE_BLAST_MAX_LINES}`
+      );
+      constraintCheck.ok = false;
+    }
+  }
   if (destructiveViolations.length > 0) {
     for (const v of destructiveViolations) {
       constraintCheck.violations.push(v);
@@ -656,8 +683,9 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
   }
 
   // Optional LLM review: when EVOLVER_LLM_REVIEW=true, submit diff for review.
+  // TTT-inspired: skip LLM review for inplace genes (fast weight updates don't need full review).
   let llmReviewResult = null;
-  if (constraintCheck.ok && validation.ok && protocolViolations.length === 0 && isLlmReviewEnabled()) {
+  if (constraintCheck.ok && validation.ok && protocolViolations.length === 0 && !inplaceMode && isLlmReviewEnabled()) {
     try {
       const reviewDiff = captureDiffSnapshot(repoRoot);
       llmReviewResult = runLlmReview({

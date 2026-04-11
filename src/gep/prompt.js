@@ -613,4 +613,55 @@ Rules:
   return basePrompt.slice(0, maxChars) + "\n...[TRUNCATED]...";
 }
 
-module.exports = { buildGepPrompt, buildReusePrompt, buildHubMatchedBlock, buildLessonsBlock, buildNarrativeBlock, buildPrinciplesBlock };
+/**
+ * TTT-inspired In-Place Gene prompt: a lightweight template for parameter-only
+ * changes (config, constants, thresholds). Analogous to only updating W_down
+ * while keeping the rest of the model frozen.
+ */
+function buildInplaceGepPrompt({
+  nowIso,
+  signals,
+  selectedGene,
+  parentEventId,
+  cycleId,
+}) {
+  const selectedGeneId = selectedGene && selectedGene.id ? selectedGene.id : 'gene_<name>';
+  const parentValue = parentEventId ? `"${parentEventId}"` : 'null';
+  const strategySteps = selectedGene && Array.isArray(selectedGene.strategy)
+    ? selectedGene.strategy.map(function (s, i) { return (i + 1) + '. ' + s; }).join('\n')
+    : '1. Identify parameter to adjust\n2. Apply minimal change\n3. Validate';
+
+  return `
+GEP -- IN-PLACE MODE (Fast Gene) [${nowIso || new Date().toISOString()}] Cycle #${cycleId || '?'}
+
+You are applying a PARAMETER-ONLY change. This is a lightweight evolution path.
+DO NOT modify core logic, add new files, or restructure code.
+
+ALLOWED changes:
+- Config files (*.json, *.yaml, *.env, *.toml)
+- Constant definitions (CAPS_CASE variables, numeric thresholds)
+- Timeout/retry/limit values
+- Feature flags and toggles
+
+FORBIDDEN changes:
+- New source files or directories
+- Function signatures or control flow
+- Import/require statements
+- Package dependencies
+
+Gene: ${selectedGeneId}
+Strategy:
+${strategySteps}
+
+Signals: ${JSON.stringify(Array.isArray(signals) ? signals.slice(0, 20) : [])}
+
+Blast radius HARD CAP: max 5 files, max 100 lines.
+Exceeding = ROLLBACK + FAILED.
+
+Output the 5 mandatory GEP objects (Mutation, PersonalityState, EvolutionEvent, Gene, Capsule) as RAW JSON.
+Parent event: ${parentValue}
+START IMMEDIATELY WITH RAW JSON (Mutation Object first).
+`.trim();
+}
+
+module.exports = { buildGepPrompt, buildReusePrompt, buildHubMatchedBlock, buildLessonsBlock, buildNarrativeBlock, buildPrinciplesBlock, buildInplaceGepPrompt };
