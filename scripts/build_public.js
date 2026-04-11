@@ -337,6 +337,36 @@ function validateNoPrivatePaths(outDirAbs) {
   }
 }
 
+function validateNoSourceMaps(outDirAbs) {
+  const violations = [];
+  const all = listFilesRec(outDirAbs);
+
+  for (const abs of all) {
+    const rel = normalizePosix(path.relative(outDirAbs, abs));
+
+    if (rel.endsWith('.map') || rel.endsWith('.js.map') || rel.endsWith('.ts.map')) {
+      violations.push(`Source map file found: ${rel}`);
+      continue;
+    }
+
+    if (!rel.endsWith('.js')) continue;
+    const content = fs.readFileSync(abs, 'utf8');
+    if (/\/\/[#@]\s*sourceMappingURL\s*=/.test(content)) {
+      violations.push(`sourceMappingURL directive found in: ${rel}`);
+    }
+    if (/\/\/[#@]\s*sourceURL\s*=/.test(content)) {
+      violations.push(`sourceURL directive found in: ${rel}`);
+    }
+  }
+
+  if (violations.length > 0) {
+    throw new Error(
+      `[P0] Source map leak detected in build output. BLOCKING PUBLISH.\n` +
+      violations.map(v => `  - ${v}`).join('\n')
+    );
+  }
+}
+
 function main() {
   const manifestPath = path.join(REPO_ROOT, 'public.manifest.json');
   const manifest = readJson(manifestPath);
@@ -377,6 +407,7 @@ function main() {
   }
 
   validateNoPrivatePaths(outDirAbs);
+  validateNoSourceMaps(outDirAbs);
 
   // Write build manifest for private verification (do not include in dist-public/).
   const buildInfo = {

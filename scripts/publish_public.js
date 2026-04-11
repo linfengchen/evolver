@@ -158,6 +158,44 @@ function ensureClean(dryRun) {
   }
 }
 
+function ensureNoSourceMaps(outDir, dryRun) {
+  if (dryRun) return;
+  const buildAbs = path.resolve(process.cwd(), outDir);
+  if (!fs.existsSync(buildAbs)) return;
+
+  const violations = [];
+
+  function walk(dir) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const ent of entries) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) { walk(full); continue; }
+      if (!ent.isFile()) continue;
+      const rel = path.relative(buildAbs, full).split(path.sep).join('/');
+      if (rel.endsWith('.map') || rel.endsWith('.js.map') || rel.endsWith('.ts.map')) {
+        violations.push(`Source map file: ${rel}`);
+        continue;
+      }
+      if (!rel.endsWith('.js')) continue;
+      const content = fs.readFileSync(full, 'utf8');
+      if (/\/\/[#@]\s*sourceMappingURL\s*=/.test(content)) {
+        violations.push(`sourceMappingURL in: ${rel}`);
+      }
+      if (/\/\/[#@]\s*sourceURL\s*=/.test(content)) {
+        violations.push(`sourceURL in: ${rel}`);
+      }
+    }
+  }
+
+  walk(buildAbs);
+  if (violations.length > 0) {
+    throw new Error(
+      `[P0] Source map leak detected -- PUBLISH BLOCKED.\n` +
+      violations.map(v => `  - ${v}`).join('\n')
+    );
+  }
+}
+
 function ensureBranch(expected, dryRun) {
   const current = run('git rev-parse --abbrev-ref HEAD', { dryRun }) || expected;
   if (!dryRun && current !== expected) {
@@ -471,6 +509,10 @@ function main() {
     ensureTagAvailable(releaseTag, dryRun);
   } else {
     requireEnv('RELEASE_TAG', releaseTag);
+  }
+
+  if (useBuildOutput) {
+    ensureNoSourceMaps(outDir, dryRun);
   }
 
   if (!releaseOnly) {
