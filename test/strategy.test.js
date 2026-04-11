@@ -26,7 +26,7 @@ describe('STRATEGIES', function () {
 
   it('all strategy ratios sum to approximately 1.0', function () {
     for (const [name, s] of Object.entries(STRATEGIES)) {
-      const sum = s.repair + s.optimize + s.innovate;
+      const sum = s.repair + s.optimize + s.innovate + (s.explore || 0);
       assert.ok(Math.abs(sum - 1.0) < 0.01, `${name} ratios sum to ${sum}`);
     }
   });

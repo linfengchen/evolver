@@ -47,21 +47,22 @@ function writeExploreState(results) {
 function shouldExplore(signals, schedule) {
   if (!EXPLORE_ENABLED) return false;
 
+  if (schedule && schedule.should_explore) {
+    const state = readExploreState();
+    const lastTs = state.last_explore_ts || 0;
+    if (Date.now() - lastTs < EXPLORE_COOLDOWN_MS) return false;
+    return true;
+  }
+
   const sigList = Array.isArray(signals) ? signals : [];
-  const hasSaturation = sigList.includes('evolution_saturation') ||
-    sigList.includes('force_steady_state') ||
-    sigList.includes('empty_cycle_loop_detected');
+  if (sigList.includes('explore_opportunity')) {
+    const state = readExploreState();
+    const lastTs = state.last_explore_ts || 0;
+    if (Date.now() - lastTs < EXPLORE_COOLDOWN_MS) return false;
+    return true;
+  }
 
-  if (!hasSaturation) return false;
-
-  const intensity = schedule && schedule.intensity;
-  if (intensity !== 'aggressive' && intensity !== 'deep') return false;
-
-  const state = readExploreState();
-  const lastTs = state.last_explore_ts || 0;
-  if (Date.now() - lastTs < EXPLORE_COOLDOWN_MS) return false;
-
-  return true;
+  return false;
 }
 
 function exploreInternal(repoDir) {
@@ -246,7 +247,7 @@ function convertToSignals(results) {
 }
 
 async function tryExplore(signals, schedule, repoDir) {
-  if (!shouldExplore(signals, schedule)) return [];
+  if (!shouldExplore(signals, schedule)) return { items: [], signals: [] };
 
   console.log('[Explore] Entering exploration mode...');
   const t0 = Date.now();
@@ -255,15 +256,16 @@ async function tryExplore(signals, schedule, repoDir) {
   const external = await exploreExternal(signals);
   const all = [...internal, ...external];
 
+  let injected = [];
   if (all.length > 0) {
     writeExploreState(all);
-    const injected = convertToSignals(all);
+    injected = convertToSignals(all);
     console.log(`[Explore] Found ${all.length} items (${internal.length} internal, ${external.length} external) in ${Date.now() - t0}ms. Injected signals: ${injected.join(', ')}`);
   } else {
     console.log(`[Explore] No findings in ${Date.now() - t0}ms.`);
   }
 
-  return all;
+  return { items: all, signals: injected };
 }
 
 module.exports = {
