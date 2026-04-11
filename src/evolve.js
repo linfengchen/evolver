@@ -39,6 +39,7 @@ const { maybeReportIssue } = require('./gep/issueReporter');
 const { resolveStrategy } = require('./gep/strategy');
 const { expandSignals } = require('./gep/learningSignals');
 const { captureLocalState } = require('./gep/localStateAwareness');
+const { tryExplore } = require('./gep/explore');
 
 const REPO_ROOT = getRepoRoot();
 
@@ -2198,6 +2199,19 @@ async function run() {
   }
 
   if (skipHubCalls) {
+    try {
+      const exploreResult = await tryExplore(signals, null, REPO_ROOT);
+      if (exploreResult && exploreResult.signals && exploreResult.signals.length > 0) {
+        console.log('[Explore] Discovered ' + exploreResult.signals.length + ' new signals during idle exploration.');
+        for (var ei = 0; ei < exploreResult.signals.length; ei++) {
+          if (!signals.includes(exploreResult.signals[ei])) {
+            signals.push(exploreResult.signals[ei]);
+          }
+        }
+      }
+    } catch (exploreErr) {
+      console.error('[Explore] Error during idle exploration: ' + exploreErr.message);
+    }
     console.log('[IdleGating] Idle cycle complete. Prompt generation and bridge spawning skipped.');
     return;
   }

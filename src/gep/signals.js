@@ -16,6 +16,7 @@ var OPPORTUNITY_SIGNALS = [
   'issue_already_resolved',
   'openclaw_self_healed',
   'empty_cycle_loop_detected',
+  'explore_opportunity',
 ];
 
 function hasOpportunitySignal(signals) {
@@ -590,6 +591,12 @@ function extractSignals({ recentSessionTranscript, todayLog, memorySnippet, user
     if (!signals.includes('evolution_saturation')) signals.push('evolution_saturation');
   } else if (history.consecutiveEmptyCycles >= 3) {
     if (!signals.includes('evolution_saturation')) signals.push('evolution_saturation');
+  }
+
+  // Exploration opportunity: when saturated, inject explore signal so the
+  // idle gating path can trigger proactive exploration instead of sleeping.
+  if (history.consecutiveEmptyCycles >= 3 && !signals.includes('explore_opportunity')) {
+    signals.push('explore_opportunity');
   }
 
   // Failure streak awareness

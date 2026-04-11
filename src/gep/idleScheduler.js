@@ -103,6 +103,7 @@ function getScheduleRecommendation() {
       should_distill: false,
       should_reflect: false,
       should_deep_evolve: false,
+      should_explore: false,
     };
   }
 
@@ -116,16 +117,19 @@ function getScheduleRecommendation() {
   let shouldDistill = false;
   let shouldReflect = false;
   let shouldDeepEvolve = false;
+  let shouldExplore = false;
 
   if (intensity === 'aggressive') {
     sleepMultiplier = 0.5;
     shouldDistill = true;
     shouldReflect = true;
+    shouldExplore = true;
   } else if (intensity === 'deep') {
     sleepMultiplier = 0.25;
     shouldDistill = true;
     shouldReflect = true;
     shouldDeepEvolve = true;
+    shouldExplore = true;
   } else if (intensity === 'signal_only') {
     sleepMultiplier = 3;
   }
@@ -143,6 +147,7 @@ function getScheduleRecommendation() {
     should_distill: shouldDistill,
     should_reflect: shouldReflect,
     should_deep_evolve: shouldDeepEvolve,
+    should_explore: shouldExplore,
   };
 }
 

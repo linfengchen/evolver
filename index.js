@@ -255,6 +255,18 @@ async function main() {
                   }
                 } catch (e) {}
               }
+              if (schedule.should_explore) {
+                try {
+                  const { tryExplore } = require('./src/gep/explore');
+                  const repoRoot = require('./src/gep/paths').getRepoRoot();
+                  const exploreResult = await tryExplore([], schedule, repoRoot);
+                  if (exploreResult && exploreResult.signals && exploreResult.signals.length > 0) {
+                    console.log('[OMLS] Explore discovered ' + exploreResult.signals.length + ' signals: ' + exploreResult.signals.slice(0, 5).join(', '));
+                  }
+                } catch (e) {
+                  if (isVerbose) console.warn('[OMLS] Explore error: ' + (e.message || e));
+                }
+              }
               if (isVerbose && schedule.idle_seconds >= 0) {
                 console.log(`[OMLS] idle=${schedule.idle_seconds}s intensity=${schedule.intensity} multiplier=${omlsMultiplier}`);
               }

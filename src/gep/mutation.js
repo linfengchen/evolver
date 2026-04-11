@@ -68,6 +68,9 @@ function mutationCategoryFromContext({ signals, driftEnabled }) {
   if (driftEnabled) return 'innovate';
   // Auto-innovate: opportunity signals present and no errors
   if (hasOpportunitySignal(signals)) return 'innovate';
+  // Explore: saturated + explicit explore signal present
+  var sigList = Array.isArray(signals) ? signals : [];
+  if (sigList.includes('explore_opportunity')) return 'explore';
   // Consult strategy preset: if the configured strategy favors innovation,
   // default to innovate instead of optimize when there is nothing specific to do.
   try {
@@ -82,6 +85,7 @@ function expectedEffectFromCategory(category) {
   if (c === 'repair') return 'reduce runtime errors, increase stability, and lower failure rate';
   if (c === 'optimize') return 'improve success rate and reduce repeated operational cost';
   if (c === 'innovate') return 'explore new strategy combinations to escape local optimum';
+  if (c === 'explore') return 'proactively scan internal codebase and external knowledge sources to discover new evolution opportunities';
   return 'improve robustness and success probability';
 }
 
@@ -163,7 +167,7 @@ function isValidMutation(obj) {
   if (!obj || typeof obj !== 'object') return false;
   if (obj.type !== 'Mutation') return false;
   if (!obj.id || typeof obj.id !== 'string') return false;
-  if (!obj.category || !['repair', 'optimize', 'innovate'].includes(String(obj.category))) return false;
+  if (!obj.category || !['repair', 'optimize', 'innovate', 'explore'].includes(String(obj.category))) return false;
   if (!Array.isArray(obj.trigger_signals)) return false;
   if (!obj.target || typeof obj.target !== 'string') return false;
   if (!obj.expected_effect || typeof obj.expected_effect !== 'string') return false;
@@ -176,7 +180,7 @@ function normalizeMutation(obj) {
   const out = {
     type: 'Mutation',
     id: typeof m.id === 'string' ? m.id : `mut_${nowTsMs()}`,
-    category: ['repair', 'optimize', 'innovate'].includes(String(m.category)) ? String(m.category) : 'optimize',
+    category: ['repair', 'optimize', 'innovate', 'explore'].includes(String(m.category)) ? String(m.category) : 'optimize',
     trigger_signals: uniqStrings(m.trigger_signals),
     target: typeof m.target === 'string' ? m.target : 'behavior:protocol',
     expected_effect: typeof m.expected_effect === 'string' ? m.expected_effect : expectedEffectFromCategory(m.category),
