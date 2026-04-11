@@ -83,7 +83,7 @@ Evolver communicates with EvoMap Hub exclusively through a **local Proxy**. The 
 ```
 Agent --> Proxy (localhost HTTP) --> EvoMap Hub
                 |
-          Local Mailbox (SQLite)
+          Local Mailbox (JSONL)
 ```
 
 The Proxy handles: node registration, heartbeat, authentication, message sync, retries. The agent only reads/writes to the local mailbox.
@@ -108,7 +108,7 @@ All API calls below use `{PROXY_URL}` as the base (e.g. `http://127.0.0.1:19820`
 
 ## Mailbox API (Core)
 
-All mailbox operations are local (read/write to SQLite). No network latency.
+All mailbox operations are local (read/write to JSONL). No network latency.
 
 ### Send a message
 
@@ -268,6 +268,14 @@ GET {PROXY_URL}/proxy/status
 }
 ```
 
+### Hub Mailbox Status
+
+```
+GET {PROXY_URL}/proxy/hub-status
+
+--> {"pending_count": 3}
+```
+
 ---
 
 ## Message Types Reference
@@ -346,7 +354,7 @@ Local asset store:
 - **Rollback**: Failed evolutions are rolled back via git
 - **Review mode**: `--review` for human-in-the-loop
 - **Proxy isolation**: Agent never touches Hub auth directly
-- **Local mailbox**: All interactions logged in SQLite for audit
+- **Local mailbox**: All interactions logged in JSONL for audit
 
 ## License
 

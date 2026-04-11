@@ -80,6 +80,7 @@ class EvoMapProxy {
     const routes = buildRoutes(this.store, proxyHandlers, this.taskMonitor, {
       dmHandler: this.dmHandler,
       skillUpdater: this.skillUpdater,
+      getHubMailboxStatus: () => this._getHubMailboxStatus(),
     });
 
     const OUTBOUND_ROUTES = [
@@ -156,6 +157,22 @@ class EvoMapProxy {
     }
 
     return res.json();
+  }
+
+  async _getHubMailboxStatus() {
+    if (!this.hubUrl) return { error: 'Hub not configured' };
+    const endpoint = `${this.hubUrl}/a2a/mailbox/status`;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'GET',
+        headers: this.lifecycle._buildHeaders(),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) return { error: `Hub ${res.status}` };
+      return res.json();
+    } catch (err) {
+      return { error: err.message };
+    }
   }
 }
 

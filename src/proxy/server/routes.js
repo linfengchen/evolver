@@ -3,7 +3,7 @@
 const { PROXY_PROTOCOL_VERSION, SCHEMA_VERSION } = require('../mailbox/store');
 
 function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
-  const { dmHandler, skillUpdater } = extensions || {};
+  const { dmHandler, skillUpdater, getHubMailboxStatus } = extensions || {};
   return {
     // -- Mailbox --
     'POST /mailbox/send': async ({ body }) => {
@@ -246,6 +246,12 @@ function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
           schema_version: SCHEMA_VERSION,
         },
       };
+    },
+
+    'GET /proxy/hub-status': async () => {
+      if (!getHubMailboxStatus) return { body: { error: 'not_available' } };
+      const hubStatus = await getHubMailboxStatus();
+      return { body: hubStatus };
     },
   };
 }
