@@ -465,7 +465,9 @@ function computeProcessScores(opts) {
   if (blast) {
     const maxFiles = geneUsed && geneUsed.constraints && geneUsed.constraints.max_files
       ? geneUsed.constraints.max_files : 12;
-    if (blast.files === 0) {
+    if (blast.files === 0 && (blast.all_changed_files || []).length > 0) {
+      blastScore = 0;
+    } else if (blast.files === 0) {
       blastScore = 0.4;
     } else if (blast.files <= maxFiles * 0.5) {
       blastScore = 1.0;

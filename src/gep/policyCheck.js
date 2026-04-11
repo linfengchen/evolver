@@ -320,6 +320,24 @@ function checkConstraints({ gene, blast, blastRadiusEstimate, repoRoot }) {
     });
   }
 
+  // Hollow commit guard: if git detected changes but none of them touch
+  // constraint-counted (i.e. real code) paths, the evolution only modified
+  // its own bookkeeping files (capsules.json, events.jsonl, genes.json,
+  // memory/, logs/, etc.).  This is the "metric gaming" anti-pattern where
+  // the engine fakes a successful evolution by updating its own scores.
+  const allChangedCount = (blast.all_changed_files || []).length;
+  const countedCount = blast.files || 0;
+  if (allChangedCount > 0 && countedCount === 0) {
+    violations.push(
+      'hollow_commit: ' + allChangedCount + ' file(s) changed but 0 are ' +
+      'constraint-counted code. Only GEP metadata was modified.'
+    );
+    console.error(
+      '[Solidify] HOLLOW COMMIT detected: changed files are all GEP assets/metadata. ' +
+      'Files: ' + (blast.all_changed_files || []).slice(0, 10).join(', ')
+    );
+  }
+
   let ethicsText = '';
   if (gene.strategy) {
     ethicsText += (Array.isArray(gene.strategy) ? gene.strategy.join(' ') : String(gene.strategy)) + ' ';

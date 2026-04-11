@@ -4,6 +4,7 @@ const {
   isConstraintCountedPath,
   parseNumstatRows,
   isForbiddenPath,
+  checkConstraints,
   classifyBlastSeverity,
   analyzeBlastRadiusBreakdown,
   compareBlastEstimate,
@@ -357,5 +358,52 @@ describe('computeProcessScores', () => {
       mutation: { rationale: 'fix', category: 'repair' },
     });
     assert.equal(scores.validation_pass_rate, 0.5);
+  });
+
+  it('gives blast_control of 0 for hollow commit (GEP-only changes)', () => {
+    const scores = computeProcessScores({
+      constraintCheck: { ok: false, violations: ['hollow_commit: 3 file(s) changed but 0 are constraint-counted code.'] },
+      validation: { ok: true, results: [{ ok: true, cmd: 'node test.js' }] },
+      protocolViolations: [],
+      canary: { ok: true, skipped: true },
+      blast: { files: 0, lines: 0, all_changed_files: ['assets/gep/capsules.json', 'assets/gep/events.jsonl', 'assets/gep/genes.json'] },
+      geneUsed: { type: 'Gene', id: 'gene_test', constraints: { max_files: 20 } },
+      signals: ['evolution_stagnation_detected'],
+      mutation: { rationale: 'optimize', category: 'optimize' },
+    });
+    assert.equal(scores.blast_control, 0);
+  });
+});
+
+describe('checkConstraints hollow commit guard', () => {
+  const baseGene = { type: 'Gene', id: 'gene_test', constraints: { max_files: 20 }, strategy: ['evolve'], description: 'test' };
+
+  it('flags hollow commit when all changes are GEP metadata only', () => {
+    const blast = {
+      files: 0,
+      lines: 0,
+      changed_files: [],
+      all_changed_files: ['assets/gep/capsules.json', 'assets/gep/events.jsonl', 'assets/gep/genes.json'],
+    };
+    const result = checkConstraints({ gene: baseGene, blast, blastRadiusEstimate: null, repoRoot: null });
+    assert.equal(result.ok, false);
+    assert.ok(result.violations.some(v => v.startsWith('hollow_commit')));
+  });
+
+  it('passes when real code files are changed alongside GEP assets', () => {
+    const blast = {
+      files: 2,
+      lines: 30,
+      changed_files: ['src/evolve.js', 'src/gep/solidify.js'],
+      all_changed_files: ['src/evolve.js', 'src/gep/solidify.js', 'assets/gep/events.jsonl'],
+    };
+    const result = checkConstraints({ gene: baseGene, blast, blastRadiusEstimate: null, repoRoot: null });
+    assert.ok(!result.violations.some(v => v.startsWith('hollow_commit')));
+  });
+
+  it('does not flag hollow commit when nothing changed at all', () => {
+    const blast = { files: 0, lines: 0, changed_files: [], all_changed_files: [] };
+    const result = checkConstraints({ gene: baseGene, blast, blastRadiusEstimate: null, repoRoot: null });
+    assert.ok(!result.violations.some(v => v.startsWith('hollow_commit')));
   });
 });
