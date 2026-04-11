@@ -127,6 +127,16 @@ function applyRewrite(outDirAbs, rewrite) {
   }
 }
 
+function applyRename(outDirAbs, renameMap) {
+  for (const [from, to] of Object.entries(renameMap || {})) {
+    const src = path.join(outDirAbs, from);
+    const dest = path.join(outDirAbs, to);
+    if (!fs.existsSync(src)) continue;
+    ensureDir(path.dirname(dest));
+    fs.renameSync(src, dest);
+  }
+}
+
 function rewritePackageJson(outDirAbs) {
   const p = path.join(outDirAbs, 'package.json');
   if (!fs.existsSync(p)) return;
@@ -321,6 +331,7 @@ function main() {
 
   pruneExcluded(outDirAbs, exclude);
   applyRewrite(outDirAbs, manifest.rewrite);
+  applyRename(outDirAbs, manifest.rename);
   rewritePackageJson(outDirAbs);
 
   // Prefer explicit version; otherwise use suggested version.

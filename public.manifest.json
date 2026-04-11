@@ -8,7 +8,7 @@
     "assets/gep/events.jsonl",
     "index.js",
     "package.json",
-    "README.md",
+    "README.public.md",
     "README.zh-CN.md",
     "SKILL.md",
     "CONTRIBUTING.md",
@@ -33,20 +33,15 @@
     "docker-compose.test.yml",
     ".git/**"
   ],
+  "rename": {
+    "README.public.md": "README.md"
+  },
   "rewrite": {
     "package.json": {
       "replace": [
         {
           "from": "\"name\": \"evolver\"",
           "to": "\"name\": \"@evomap/evolver\""
-        }
-      ]
-    },
-    "README.md": {
-      "replace": [
-        {
-          "from": "This repo is a private staging area for the public repository.",
-          "to": "This repository is the public distribution."
         }
       ]
     },
