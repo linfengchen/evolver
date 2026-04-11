@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 function hmacSha256(key, data) {
   return crypto.createHmac('sha256', key).update(data).digest('hex');
@@ -55,17 +55,17 @@ function requestSolidifyPermitSync({ geneId, signals, mutation }) {
   const endpoint = hubUrl + '/a2a/verify-solidify';
   const timeoutSec = Math.ceil((require('../config').HTTP_TRANSPORT_TIMEOUT_MS || 10000) / 1000);
 
-  const curlCmd = [
-    'curl', '-s', '-X', 'POST',
-    '-H', '"Content-Type: application/json"',
-    '-H', '"Authorization: Bearer ' + req.nodeSecret + '"',
-    '-d', "'" + JSON.stringify(req.body).replace(/'/g, "'\\''") + "'",
+  const curlArgs = [
+    '-s', '-X', 'POST',
+    '-H', 'Content-Type: application/json',
+    '-H', 'Authorization: Bearer ' + req.nodeSecret,
+    '-d', JSON.stringify(req.body),
     '--max-time', String(timeoutSec),
-    '"' + endpoint + '"',
-  ].join(' ');
+    endpoint,
+  ];
 
   try {
-    const stdout = execSync(curlCmd, {
+    const stdout = execFileSync('curl', curlArgs, {
       encoding: 'utf8',
       timeout: (timeoutSec + 2) * 1000,
       stdio: ['ignore', 'pipe', 'ignore'],

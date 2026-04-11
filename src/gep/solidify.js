@@ -36,7 +36,7 @@ const { logAssetCall } = require('./assetCallLog');
 const { recordNarrative } = require('./narrativeMemory');
 const { isLlmReviewEnabled, runLlmReview } = require('./llmReview');
 const { buildExecutionTrace } = require('./executionTrace');
-const { requestSolidifyPermit, isSolidifyVerifyEnabled } = require('./hubVerify');
+const { requestSolidifyPermitSync, isSolidifyVerifyEnabled } = require('./hubVerify');
 
 function nowIso() {
   return new Date().toISOString();
@@ -675,7 +675,6 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
   let hubPermit = null;
   if (!dryRun && isSolidifyVerifyEnabled()) {
     try {
-      const { requestSolidifyPermitSync } = require('./hubVerify');
       hubPermit = requestSolidifyPermitSync({
         geneId: geneUsed && geneUsed.id ? geneUsed.id : null,
         signals: signals,
