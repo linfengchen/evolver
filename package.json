@@ -36,5 +36,8 @@
   },
   "dependencies": {
     "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.1"
   }
 }

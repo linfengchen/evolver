@@ -36,6 +36,24 @@
   "rename": {
     "README.public.md": "README.md"
   },
+  "obfuscate": [
+    "src/evolve.js",
+    "src/gep/selector.js",
+    "src/gep/mutation.js",
+    "src/gep/solidify.js",
+    "src/gep/prompt.js",
+    "src/gep/candidates.js",
+    "src/gep/reflection.js",
+    "src/gep/narrativeMemory.js",
+    "src/gep/curriculum.js",
+    "src/gep/personality.js",
+    "src/gep/learningSignals.js",
+    "src/gep/memoryGraph.js",
+    "src/gep/memoryGraphAdapter.js",
+    "src/gep/strategy.js",
+    "src/gep/candidateEval.js",
+    "src/gep/hubVerify.js"
+  ],
   "rewrite": {
     "package.json": {
       "replace": [

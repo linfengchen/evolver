@@ -293,6 +293,36 @@ function pruneExcluded(outDirAbs, excludeGlobs) {
   }
 }
 
+function getObfuscator() {
+  return require('javascript-obfuscator');
+}
+
+function obfuscateFiles(outDirAbs, fileList, JavaScriptObfuscator) {
+  for (const rel of fileList) {
+    const abs = path.join(outDirAbs, rel);
+    if (!fs.existsSync(abs)) continue;
+    const src = fs.readFileSync(abs, 'utf8');
+    const result = JavaScriptObfuscator.obfuscate(src, {
+      compact: true,
+      controlFlowFlattening: true,
+      controlFlowFlatteningThreshold: 0.75,
+      deadCodeInjection: true,
+      deadCodeInjectionThreshold: 0.4,
+      stringArray: true,
+      stringArrayEncoding: ['rc4'],
+      stringArrayThreshold: 0.85,
+      identifierNamesGenerator: 'hexadecimal',
+      renameGlobals: false,
+      selfDefending: false,
+      splitStrings: true,
+      splitStringsChunkLength: 8,
+      numbersToExpressions: true,
+      target: 'node',
+    });
+    fs.writeFileSync(abs, result.getObfuscatedCode(), 'utf8');
+  }
+}
+
 function validateNoPrivatePaths(outDirAbs) {
   // Basic safeguard: forbid docs/ and memory/ in output.
   const forbiddenPrefixes = ['docs/', 'memory/'];
@@ -337,6 +367,14 @@ function main() {
   // Prefer explicit version; otherwise use suggested version.
   const releaseVersion = process.env.RELEASE_VERSION || semver.suggestedVersion;
   if (releaseVersion) writeDistVersion(outDirAbs, releaseVersion);
+
+  // --- obfuscate pass: protect core IP before public distribution ---
+  const obfuscateList = manifest.obfuscate || [];
+  if (obfuscateList.length > 0) {
+    const JavaScriptObfuscator = getObfuscator();
+    obfuscateFiles(outDirAbs, obfuscateList, JavaScriptObfuscator);
+    process.stdout.write(`Obfuscated ${obfuscateList.length} core module(s).\n`);
+  }
 
   validateNoPrivatePaths(outDirAbs);
 

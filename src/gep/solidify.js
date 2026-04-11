@@ -36,6 +36,7 @@ const { logAssetCall } = require('./assetCallLog');
 const { recordNarrative } = require('./narrativeMemory');
 const { isLlmReviewEnabled, runLlmReview } = require('./llmReview');
 const { buildExecutionTrace } = require('./executionTrace');
+const { requestSolidifyPermit, isSolidifyVerifyEnabled } = require('./hubVerify');
 
 function nowIso() {
   return new Date().toISOString();
@@ -667,6 +668,31 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
 
   // Capture environment fingerprint before validation.
   const envFp = captureEnvFingerprint();
+
+  // --- Hub solidify verification gate ---
+  // When connected to Hub, require online authorization before proceeding.
+  // This prevents cloned/pirated evolver instances from using core evolution logic.
+  let hubPermit = null;
+  if (!dryRun && isSolidifyVerifyEnabled()) {
+    try {
+      const { requestSolidifyPermitSync } = require('./hubVerify');
+      hubPermit = requestSolidifyPermitSync({
+        geneId: geneUsed && geneUsed.id ? geneUsed.id : null,
+        signals: signals,
+        mutation: mutation,
+      });
+    } catch (e) {
+      console.log('[HubVerify] Permit request failed (non-fatal): ' + (e && e.message ? e.message : e));
+      hubPermit = null;
+    }
+    if (hubPermit && !hubPermit.ok && !hubPermit.offline) {
+      constraintCheck.violations.push('hub_solidify_verification_denied: ' + (hubPermit.error || 'unknown'));
+      constraintCheck.ok = false;
+      console.error('[HubVerify] Solidify DENIED by Hub: ' + (hubPermit.error || 'unknown'));
+    } else if (hubPermit && hubPermit.ok) {
+      console.log('[HubVerify] Solidify authorized by Hub (permit issued).');
+    }
+  }
 
   let validation = { ok: true, results: [], startedAt: null, finishedAt: null };
   if (geneUsed) {
