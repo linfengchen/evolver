@@ -49,6 +49,16 @@ describe('buildMessage', () => {
 });
 
 describe('typed message builders', () => {
+  var _origNodeSecret;
+  before(() => {
+    _origNodeSecret = process.env.A2A_NODE_SECRET;
+    process.env.A2A_NODE_SECRET = 'test-secret-for-signing';
+  });
+  after(() => {
+    if (_origNodeSecret === undefined) delete process.env.A2A_NODE_SECRET;
+    else process.env.A2A_NODE_SECRET = _origNodeSecret;
+  });
+
   it('buildHello includes env_fingerprint', () => {
     const msg = buildHello({});
     assert.equal(msg.message_type, 'hello');
@@ -115,6 +125,16 @@ describe('isValidProtocolMessage', () => {
 });
 
 describe('unwrapAssetFromMessage', () => {
+  var _origNodeSecret;
+  before(() => {
+    _origNodeSecret = process.env.A2A_NODE_SECRET;
+    process.env.A2A_NODE_SECRET = 'test-secret-for-signing';
+  });
+  after(() => {
+    if (_origNodeSecret === undefined) delete process.env.A2A_NODE_SECRET;
+    else process.env.A2A_NODE_SECRET = _origNodeSecret;
+  });
+
   it('extracts asset from publish message', () => {
     const asset = { type: 'Gene', id: 'g1', strategy: ['test'] };
     const msg = buildPublish({ asset });

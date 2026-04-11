@@ -343,15 +343,24 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
   const allEdges = aggregateEdges(events);
   const allGeneOutcomes = aggregateGeneOutcomes(events);
 
-  // Epoch-split: re-aggregate only current-epoch events for ban decisions
+  // Epoch-split: re-aggregate only current-epoch events for ban decisions.
+  // Use the positional index of the epoch_boundary event rather than its
+  // timestamp so that events written in the same millisecond are correctly
+  // classified as pre- or post-epoch.
   let curEpochEdges = allEdges;
   let curEpochGeneOutcomes = allGeneOutcomes;
-  if (epochBoundaryTs) {
-    const curEpochEvents = events.filter(function (ev) {
-      if (!ev || !ev.ts) return false;
-      const t = Date.parse(ev.ts);
-      return Number.isFinite(t) && t >= epochBoundaryTs;
-    });
+  let epochBoundaryIdx = -1;
+  if (epochBoundaryTs !== null) {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      if (ev && ev.kind === 'epoch_boundary' && ev.ts) {
+        epochBoundaryIdx = i;
+        break;
+      }
+    }
+  }
+  if (epochBoundaryIdx >= 0) {
+    const curEpochEvents = events.slice(epochBoundaryIdx + 1);
     curEpochEdges = aggregateEdges(curEpochEvents);
     curEpochGeneOutcomes = aggregateGeneOutcomes(curEpochEvents);
   }
@@ -394,20 +403,25 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
       };
 
       if (edge) {
-        const ex = edgeExpectedSuccess(edge, { half_life_days: 30 });
-        let epochFactor = 1.0;
-        if (epochBoundaryTs && edge.last_ts) {
-          const edgeTs = Date.parse(edge.last_ts);
-          if (Number.isFinite(edgeTs) && edgeTs < epochBoundaryTs) {
-            epochFactor = CROSS_EPOCH_WEIGHT;
-          }
+        // When an epoch boundary exists and there is current-epoch evidence
+        // for this edge, score from the current-epoch edge at full weight
+        // and treat the cross-epoch remainder as a weak prior.  This avoids
+        // timestamp-resolution races where edge.last_ts coincides with the
+        // epoch boundary timestamp.
+        let weighted;
+        if (epochBoundaryTs && curEpochEdge && (curEpochEdge.success + curEpochEdge.fail) > 0) {
+          const ceEx = edgeExpectedSuccess(curEpochEdge, { half_life_days: 30 });
+          weighted = ceEx.value * ck.sim;
+        } else {
+          const ex = edgeExpectedSuccess(edge, { half_life_days: 30 });
+          let epochFactor = 1.0;
+          if (epochBoundaryTs) epochFactor = CROSS_EPOCH_WEIGHT;
+          weighted = ex.value * ck.sim * epochFactor;
         }
-        const weighted = ex.value * ck.sim * epochFactor;
+        const ex = edgeExpectedSuccess(edge, { half_life_days: 30 });
         if (weighted > cur.best) cur.best = weighted;
         cur.attempts = Math.max(cur.attempts, ex.total);
 
-        // Use current-epoch edge for rawSuccess/rawFail and perKeyAttempts
-        // so that ban decisions only consider current-epoch evidence.
         const ceEdge = curEpochEdge || { success: 0, fail: 0 };
         cur.rawSuccess += (Number(ceEdge.success) || 0);
         cur.rawFail += (Number(ceEdge.fail) || 0);
@@ -421,15 +435,19 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
       const gEdge = allGeneOutcomes.get(String(g.id));
       const ceGEdge = curEpochGeneOutcomes.get(String(g.id));
       if (gEdge) {
-        const gx = edgeExpectedSuccess(gEdge, { half_life_days: 45 });
-        let gEpochFactor = 1.0;
-        if (epochBoundaryTs && gEdge.last_ts) {
-          const gTs = Date.parse(gEdge.last_ts);
-          if (Number.isFinite(gTs) && gTs < epochBoundaryTs) {
-            gEpochFactor = CROSS_EPOCH_WEIGHT;
-          }
+        // Same logic: prefer current-epoch gene outcome when available.
+        let gWeighted;
+        if (epochBoundaryTs && ceGEdge && (ceGEdge.success + ceGEdge.fail) > 0) {
+          const ceGx = edgeExpectedSuccess(ceGEdge, { half_life_days: 45 });
+          gWeighted = ceGx.value;
+        } else {
+          const gx = edgeExpectedSuccess(gEdge, { half_life_days: 45 });
+          let gEpochFactor = 1.0;
+          if (epochBoundaryTs) gEpochFactor = CROSS_EPOCH_WEIGHT;
+          gWeighted = gx.value * gEpochFactor;
         }
-        cur.prior = Math.max(cur.prior, gx.value * gEpochFactor);
+        const gx = edgeExpectedSuccess(gEdge, { half_life_days: 45 });
+        cur.prior = Math.max(cur.prior, gWeighted);
         cur.prior_attempts = Math.max(cur.prior_attempts, gx.total);
       }
 

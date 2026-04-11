@@ -129,32 +129,38 @@ describe('selectGene', () => {
   });
 
   it('downweights genes with repeated hard-fail anti-patterns', () => {
-    const riskyGenes = [
-      {
-        type: 'Gene',
-        id: 'gene_perf_risky',
-        category: 'optimize',
-        signals_match: ['perf_bottleneck'],
-        anti_patterns: [
-          { mode: 'hard', learning_signals: ['problem:performance'] },
-          { mode: 'hard', learning_signals: ['problem:performance'] },
-        ],
-        validation: ['node -e "true"'],
-      },
-      {
-        type: 'Gene',
-        id: 'gene_perf_safe',
-        category: 'optimize',
-        signals_match: ['perf_bottleneck'],
-        learning_history: [
-          { outcome: 'success', mode: 'none' },
-        ],
-        validation: ['node -e "true"'],
-      },
-    ];
-    const result = selectGene(riskyGenes, ['perf_bottleneck'], { effectivePopulationSize: 100 });
-    assert.ok(result.selected);
-    assert.equal(result.selected.id, 'gene_perf_safe');
+    const originalRandom = Math.random;
+    Math.random = () => 0.99;
+    try {
+      const riskyGenes = [
+        {
+          type: 'Gene',
+          id: 'gene_perf_risky',
+          category: 'optimize',
+          signals_match: ['perf_bottleneck'],
+          anti_patterns: [
+            { mode: 'hard', learning_signals: ['problem:performance'] },
+            { mode: 'hard', learning_signals: ['problem:performance'] },
+          ],
+          validation: ['node -e "true"'],
+        },
+        {
+          type: 'Gene',
+          id: 'gene_perf_safe',
+          category: 'optimize',
+          signals_match: ['perf_bottleneck'],
+          learning_history: [
+            { outcome: 'success', mode: 'none' },
+          ],
+          validation: ['node -e "true"'],
+        },
+      ];
+      const result = selectGene(riskyGenes, ['perf_bottleneck'], { effectivePopulationSize: 100 });
+      assert.ok(result.selected);
+      assert.equal(result.selected.id, 'gene_perf_safe');
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 });
 

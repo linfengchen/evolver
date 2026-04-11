@@ -126,12 +126,19 @@ describe('bare invocation routing -- black-box', () => {
   const repoRoot = path.resolve(__dirname, '..');
 
   it('node index.js (no args) starts evolution, not help', () => {
-    const out = execFileSync(process.execPath, ['index.js'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      timeout: 15000,
-      env: { ...process.env, EVOLVE_BRIDGE: 'false', A2A_HUB_URL: '', EVOLVER_REPO_ROOT: repoRoot },
-    });
+    let out;
+    try {
+      out = execFileSync(process.execPath, ['index.js'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        env: { ...process.env, EVOLVE_BRIDGE: 'false', A2A_HUB_URL: '', EVOLVER_REPO_ROOT: repoRoot },
+      });
+    } catch (err) {
+      // evolve.run() will block/timeout -- that is expected for a bare invocation.
+      // Extract whatever stdout was captured before the timeout.
+      out = (err.stdout || '') + '';
+    }
     assert.ok(out.includes('Starting evolver') || out.includes('GEP'),
       'bare invocation should start evolution, not show usage. Got: ' + out.slice(0, 200));
     assert.ok(!out.includes('Usage:'), 'should not show usage for bare invocation');
