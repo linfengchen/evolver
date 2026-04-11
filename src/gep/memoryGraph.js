@@ -334,8 +334,28 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
     }
   }
 
-  const edges = aggregateEdges(events);
-  const geneOutcomes = aggregateGeneOutcomes(events);
+  // TTT-inspired: build epoch-aware edge aggregations.
+  // When an epoch boundary exists, split aggregation into current-epoch
+  // and cross-epoch sets so that ban decisions and preference scoring
+  // operate on current-epoch evidence, with cross-epoch data as weak priors.
+  const CROSS_EPOCH_WEIGHT = 0.1;
+
+  const allEdges = aggregateEdges(events);
+  const allGeneOutcomes = aggregateGeneOutcomes(events);
+
+  // Epoch-split: re-aggregate only current-epoch events for ban decisions
+  let curEpochEdges = allEdges;
+  let curEpochGeneOutcomes = allGeneOutcomes;
+  if (epochBoundaryTs) {
+    const curEpochEvents = events.filter(function (ev) {
+      if (!ev || !ev.ts) return false;
+      const t = Date.parse(ev.ts);
+      return Number.isFinite(t) && t >= epochBoundaryTs;
+    });
+    curEpochEdges = aggregateEdges(curEpochEvents);
+    curEpochGeneOutcomes = aggregateGeneOutcomes(curEpochEvents);
+  }
+
   const curSignals = Array.isArray(signals) ? signals : [];
   const curKey = computeSignalKey(curSignals);
 
@@ -365,7 +385,8 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
     for (const g of Array.isArray(genes) ? genes : []) {
       if (!g || g.type !== 'Gene' || !g.id) continue;
       const k = `${ck.key}::${g.id}`;
-      const edge = edges.get(k);
+      const edge = allEdges.get(k);
+      const curEpochEdge = curEpochEdges.get(k);
       const cur = byGene.get(g.id) || {
         geneId: g.id, best: 0, attempts: 0, prior: 0, prior_attempts: 0,
         rawSuccess: 0, rawFail: 0,
@@ -374,8 +395,6 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
 
       if (edge) {
         const ex = edgeExpectedSuccess(edge, { half_life_days: 30 });
-        // TTT-inspired: apply epoch decay for cross-epoch edges
-        const CROSS_EPOCH_WEIGHT = 0.1;
         let epochFactor = 1.0;
         if (epochBoundaryTs && edge.last_ts) {
           const edgeTs = Date.parse(edge.last_ts);
@@ -386,20 +405,31 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
         const weighted = ex.value * ck.sim * epochFactor;
         if (weighted > cur.best) cur.best = weighted;
         cur.attempts = Math.max(cur.attempts, ex.total);
-        cur.rawSuccess += (Number(edge.success) || 0);
-        cur.rawFail += (Number(edge.fail) || 0);
-        // Per-key attempt count: how many times this gene was tried on
-        // similar signal keys. Used for signal-scoped ban decisions.
+
+        // Use current-epoch edge for rawSuccess/rawFail and perKeyAttempts
+        // so that ban decisions only consider current-epoch evidence.
+        const ceEdge = curEpochEdge || { success: 0, fail: 0 };
+        cur.rawSuccess += (Number(ceEdge.success) || 0);
+        cur.rawFail += (Number(ceEdge.fail) || 0);
         if (ck.sim >= 0.8) {
-          cur.perKeyAttempts += ex.total;
+          const ceTotal = (Number(ceEdge.success) || 0) + (Number(ceEdge.fail) || 0);
+          cur.perKeyAttempts += ceTotal;
         }
         totalAttempts += ex.total;
       }
 
-      const gEdge = geneOutcomes.get(String(g.id));
+      const gEdge = allGeneOutcomes.get(String(g.id));
+      const ceGEdge = curEpochGeneOutcomes.get(String(g.id));
       if (gEdge) {
         const gx = edgeExpectedSuccess(gEdge, { half_life_days: 45 });
-        cur.prior = Math.max(cur.prior, gx.value);
+        let gEpochFactor = 1.0;
+        if (epochBoundaryTs && gEdge.last_ts) {
+          const gTs = Date.parse(gEdge.last_ts);
+          if (Number.isFinite(gTs) && gTs < epochBoundaryTs) {
+            gEpochFactor = CROSS_EPOCH_WEIGHT;
+          }
+        }
+        cur.prior = Math.max(cur.prior, gx.value * gEpochFactor);
         cur.prior_attempts = Math.max(cur.prior_attempts, gx.total);
       }
 
