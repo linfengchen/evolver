@@ -124,6 +124,7 @@ function buildMessage(params) {
 
 function buildHello(opts) {
   const o = opts || {};
+  var name = (typeof o.name === 'string') ? o.name.trim().slice(0, 32) : undefined;
   return buildMessage({
     messageType: 'hello',
     senderId: o.nodeId,
@@ -132,6 +133,7 @@ function buildHello(opts) {
       gene_count: typeof o.geneCount === 'number' ? o.geneCount : null,
       capsule_count: typeof o.capsuleCount === 'number' ? o.capsuleCount : null,
       env_fingerprint: captureEnvFingerprint(),
+      name: name || undefined,
     },
   });
 }
@@ -499,7 +501,8 @@ function sendHelloToHub() {
 
   const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/hello';
   const nodeId = getNodeId();
-  const msg = buildHello({ nodeId: nodeId, capabilities: {} });
+  const agentName = (process.env.EVOLVER_AGENT_NAME || process.env.EVOLVER_MODEL_NAME || '').trim().slice(0, 32) || undefined;
+  const msg = buildHello({ nodeId: nodeId, capabilities: {}, name: agentName });
   msg.sender_id = nodeId;
 
   return fetch(endpoint, {

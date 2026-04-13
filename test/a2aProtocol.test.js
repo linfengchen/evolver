@@ -65,6 +65,24 @@ describe('typed message builders', () => {
     assert.ok(msg.payload.env_fingerprint);
   });
 
+  it('buildHello includes name when provided', () => {
+    const msg = buildHello({ name: 'My Agent' });
+    assert.equal(msg.payload.name, 'My Agent');
+  });
+
+  it('buildHello omits name when empty or missing', () => {
+    const msg1 = buildHello({});
+    assert.equal(msg1.payload.name, undefined);
+    const msg2 = buildHello({ name: '   ' });
+    assert.equal(msg2.payload.name, undefined);
+  });
+
+  it('buildHello truncates name to 32 chars', () => {
+    const long = 'A'.repeat(50);
+    const msg = buildHello({ name: long });
+    assert.equal(msg.payload.name.length, 32);
+  });
+
   it('buildPublish requires asset with type and id', () => {
     assert.throws(() => buildPublish({}), /asset must have type and id/);
     assert.throws(() => buildPublish({ asset: { type: 'Gene' } }), /asset must have type and id/);
