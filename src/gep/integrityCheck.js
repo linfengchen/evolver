@@ -42,8 +42,8 @@ function loadManifest() {
   }
 }
 
-function verify() {
-  if (_verified !== null) return _verified;
+function verify(force) {
+  if (!force && _verified !== null) return _verified;
 
   const manifest = loadManifest();
   if (!manifest || manifest.length === 0) {

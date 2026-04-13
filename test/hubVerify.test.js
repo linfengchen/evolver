@@ -43,10 +43,11 @@ describe('hubVerify', function () {
     if (origUrl !== undefined) process.env.A2A_HUB_URL = origUrl;
   });
 
-  it('consumeOfflinePermit returns error when no token cached', function () {
+  it('consumeOfflinePermit returns error with offline flag when no token cached', function () {
     const { consumeOfflinePermit } = require('../src/gep/hubVerify');
     const result = consumeOfflinePermit();
     assert.strictEqual(result.ok, false);
+    assert.strictEqual(result.offline, true);
   });
 
   it('isSolidifyVerifyEnabled ignores env var disable in non-test env', function () {

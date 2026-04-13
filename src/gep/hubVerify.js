@@ -139,7 +139,11 @@ function getMemDir() {
   try {
     return require('./paths').getMemoryDir();
   } catch (e) {
-    return path.join(process.cwd(), '.evolver', 'memory');
+    try {
+      return path.join(require('./paths').getRepoRoot(), '.evolver', 'memory');
+    } catch (e2) {
+      return path.join(process.cwd(), '.evolver', 'memory');
+    }
   }
 }
 
@@ -208,7 +212,7 @@ var MAX_CLOCK_DRIFT_MS = 24 * 60 * 60 * 1000;
 
 function consumeOfflinePermit() {
   var token = loadOfflineToken();
-  if (!token) return { ok: false, error: 'no_offline_token' };
+  if (!token) return { ok: false, error: 'no_offline_token', offline: true };
 
   var maxSolidifies = token.maxOfflineSolidifies || MAX_OFFLINE_SOLIDIFIES;
   var expiresAt = token.expiresAt || 0;
@@ -217,19 +221,19 @@ function consumeOfflinePermit() {
 
   var lastOnline = getLastOnlineVerifyTs();
   if (lastOnline > 0 && now < lastOnline - MAX_CLOCK_DRIFT_MS) {
-    return { ok: false, error: 'clock_drift_detected' };
+    return { ok: false, error: 'clock_drift_detected', offline: true };
   }
 
   if (expiresAt > 0 && now > expiresAt) {
-    return { ok: false, error: 'offline_token_expired' };
+    return { ok: false, error: 'offline_token_expired', offline: true };
   }
 
   if (lastOnline > 0 && (now - lastOnline) > MAX_OFFLINE_DURATION_MS) {
-    return { ok: false, error: 'offline_duration_exceeded' };
+    return { ok: false, error: 'offline_duration_exceeded', offline: true };
   }
 
   if (usedCount >= maxSolidifies) {
-    return { ok: false, error: 'offline_quota_exhausted' };
+    return { ok: false, error: 'offline_quota_exhausted', offline: true };
   }
 
   token.usedCount = usedCount + 1;

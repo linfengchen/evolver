@@ -9,6 +9,13 @@ describe('integrityCheck', function () {
     assert.strictEqual(result, true);
   });
 
+  it('verify with force=true re-checks (idempotent when no .integrity)', function () {
+    const r1 = integrity.verify();
+    const r2 = integrity.verify(true);
+    assert.strictEqual(r1, true);
+    assert.strictEqual(r2, true);
+  });
+
   it('isDegraded returns false initially', function () {
     assert.strictEqual(integrity.isDegraded(), false);
   });

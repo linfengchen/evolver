@@ -672,7 +672,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
   const envFp = captureEnvFingerprint();
 
   _shield.check();
-  _integrity.verify();
+  _integrity.verify(true);
 
   if (_integrity.isDegraded() || _shield.isDegraded()) {
     constraintCheck.violations.push('internal_constraint_check_failed');
@@ -692,7 +692,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
       });
     } catch (e) {
       console.log('[HubVerify] Permit request failed (non-fatal): ' + (e && e.message ? e.message : e));
-      hubPermit = null;
+      hubPermit = { ok: false, error: 'request_failed', offline: true };
     }
     if (hubPermit && hubPermit.offline && !hubPermit.ok) {
       try {
@@ -701,7 +701,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
           console.log('[HubVerify] Offline permit consumed (remaining: ' + (hubPermit.remaining || '?') + ').');
         }
       } catch (e) {
-        hubPermit = { ok: false, error: 'offline_permit_failed' };
+        hubPermit = { ok: false, error: 'offline_permit_failed', offline: true };
       }
     }
     if (hubPermit && !hubPermit.ok && !hubPermit.offline) {
