@@ -104,8 +104,16 @@ const MEMORY_DIR = getMemoryDir();
 const AGENT_NAME = process.env.AGENT_NAME || 'main';
 const AGENT_SESSIONS_DIR = path.join(os.homedir(), `.openclaw/agents/${AGENT_NAME}/sessions`);
 const CURSOR_TRANSCRIPTS_DIR = process.env.EVOLVER_CURSOR_TRANSCRIPTS_DIR || '';
-const SESSION_SOURCE = (process.env.EVOLVER_SESSION_SOURCE || 'auto').toLowerCase();
+const SESSION_SOURCE = (process.env.EVOLVER_SESSION_SOURCE || detectSessionSource()).toLowerCase();
 const TODAY_LOG = path.join(MEMORY_DIR, new Date().toISOString().split('T')[0] + '.md');
+
+function detectSessionSource() {
+  if (process.env.CURSOR_TRACE_DIR || fs.existsSync(path.join(os.homedir(), '.cursor'))) return 'cursor';
+  if (fs.existsSync(path.join(os.homedir(), '.claude'))) return 'cursor';
+  if (fs.existsSync(path.join(os.homedir(), '.codex'))) return 'cursor';
+  if (fs.existsSync(AGENT_SESSIONS_DIR)) return 'auto';
+  return 'cursor';
+}
 
 // Ensure memory directory exists so state/cache writes work.
 try {
@@ -461,14 +469,14 @@ function readRealSessionLog() {
       return ocContent || cursorContent || '[NO SESSION LOGS FOUND]';
     }
 
-    // 'auto' (default): OpenClaw primary, Cursor fallback
-    const ocContent = readOpenClawSessions();
-    if (ocContent) return ocContent;
-
+    // 'auto': detect environment -- Cursor/IDE transcripts first, OpenClaw fallback
     const cursorContent = readCursorTranscripts();
-    if (cursorContent) {
-      console.log('[SessionFallback] Using Cursor agent-transcripts as session source.');
-      return cursorContent;
+    if (cursorContent) return cursorContent;
+
+    const ocContent = readOpenClawSessions();
+    if (ocContent) {
+      console.log('[SessionFallback] Using OpenClaw sessions as session source.');
+      return ocContent;
     }
 
     return '[NO SESSION LOGS FOUND]';
@@ -822,26 +830,34 @@ function performMaintenance() {
   }
 }
 
-// --- Auto-update: check for newer versions of evolver and wrapper on ClawHub ---
+// --- Auto-update: check for newer versions of evolver ---
 function checkAndAutoUpdate() {
   try {
-    // Read config: default autoUpdate = true
-    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
     let autoUpdate = true;
     let intervalHours = 6;
-    try {
-      if (fs.existsSync(configPath)) {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        if (cfg.evolver && cfg.evolver.autoUpdate === false) autoUpdate = false;
-        if (cfg.evolver && Number.isFinite(Number(cfg.evolver.autoUpdateIntervalHours))) {
-          intervalHours = Number(cfg.evolver.autoUpdateIntervalHours);
+
+    // Read config from multiple locations (prioritize evolver's own .env/config)
+    const configCandidates = [
+      path.join(REPO_ROOT, 'evolver.json'),
+      path.join(os.homedir(), '.evomap', 'evolver.json'),
+      path.join(os.homedir(), '.openclaw', 'openclaw.json'),
+    ];
+    for (const configPath of configCandidates) {
+      try {
+        if (fs.existsSync(configPath)) {
+          const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          const evolverCfg = cfg.evolver || cfg;
+          if (evolverCfg.autoUpdate === false) autoUpdate = false;
+          if (Number.isFinite(Number(evolverCfg.autoUpdateIntervalHours))) {
+            intervalHours = Number(evolverCfg.autoUpdateIntervalHours);
+          }
+          break;
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
 
     if (!autoUpdate) return;
 
-    // Rate limit: only check once per interval
     const stateFile = path.join(MEMORY_DIR, 'evolver_update_check.json');
     const now = Date.now();
     const intervalMs = intervalHours * 60 * 60 * 1000;
@@ -849,11 +865,25 @@ function checkAndAutoUpdate() {
       if (fs.existsSync(stateFile)) {
         const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
         if (state.lastCheckedAt && (now - new Date(state.lastCheckedAt).getTime()) < intervalMs) {
-          return; // Too soon, skip
+          return;
         }
       }
     } catch (_) {}
 
+    // Channel 1: npm (preferred for standalone/Cursor/Claude Code/Codex installs)
+    let updated = false;
+    try {
+      const currentPkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+      const currentVersion = currentPkg.version || '0.0.0';
+      const npmOut = execSync('npm view @evomap/evolver version 2>/dev/null', {
+        encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+      }).trim();
+      if (npmOut && npmOut !== currentVersion) {
+        console.log(`[AutoUpdate] New version available: ${currentVersion} -> ${npmOut} (npm: @evomap/evolver)`);
+      }
+    } catch (_) {}
+
+    // Channel 2: clawhub (legacy, only if available)
     let clawhubBin = null;
     const whichCmd = process.platform === 'win32' ? 'where clawhub' : 'which clawhub';
     const candidates = ['clawhub', path.join(os.homedir(), '.npm-global/bin/clawhub'), '/usr/local/bin/clawhub'];
@@ -867,43 +897,34 @@ function checkAndAutoUpdate() {
         if (fs.existsSync(c)) { clawhubBin = c; break; }
       } catch (_) {}
     }
-    if (!clawhubBin) return; // No clawhub CLI available
 
-    // Update evolver and feishu-evolver-wrapper
-    const slugs = ['evolver', 'feishu-evolver-wrapper'];
-    let updated = false;
-    for (const slug of slugs) {
-      try {
-        const out = execSync(`${clawhubBin} update ${slug} --force`, {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 30000,
-          cwd: path.resolve(REPO_ROOT, '..'),
-          windowsHide: true,
-        });
-        if (out && !out.includes('already up to date') && !out.includes('not installed')) {
-          console.log(`[AutoUpdate] ${slug}: ${out.trim().split('\n').pop()}`);
-          updated = true;
-        }
-      } catch (e) {
-        // Non-fatal: update failure should never block evolution
+    if (clawhubBin) {
+      const slugs = ['evolver'];
+      for (const slug of slugs) {
+        try {
+          const out = execSync(`${clawhubBin} update ${slug} --force`, {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: 30000,
+            cwd: path.resolve(REPO_ROOT, '..'),
+            windowsHide: true,
+          });
+          if (out && !out.includes('already up to date') && !out.includes('not installed')) {
+            console.log(`[AutoUpdate] ${slug}: ${out.trim().split('\n').pop()}`);
+            updated = true;
+          }
+        } catch (e) {}
       }
     }
 
-    // Write state
     try {
-      const stateData = {
-        lastCheckedAt: new Date(now).toISOString(),
-        updated,
-      };
-      fs.writeFileSync(stateFile, JSON.stringify(stateData, null, 2) + '\n');
+      fs.writeFileSync(stateFile, JSON.stringify({ lastCheckedAt: new Date(now).toISOString(), updated }, null, 2) + '\n');
     } catch (_) {}
 
     if (updated) {
-      console.log('[AutoUpdate] Skills updated. Changes will take effect on next wrapper restart.');
+      console.log('[AutoUpdate] Skills updated. Changes will take effect on next restart.');
     }
   } catch (e) {
-    // Entire auto-update is non-fatal
     console.log(`[AutoUpdate] Check failed (non-fatal): ${e.message}`);
   }
 }

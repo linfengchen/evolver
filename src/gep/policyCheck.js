@@ -32,8 +32,16 @@ function readOpenclawConstraintPolicy() {
   };
   try {
     const root = path.resolve(getWorkspaceRoot(), '..');
-    const cfgPath = path.join(root, 'openclaw.json');
-    if (!fs.existsSync(cfgPath)) return defaults;
+    const configCandidates = [
+      path.join(root, 'evolver.json'),
+      path.join(getRepoRoot(), 'evolver.json'),
+      path.join(root, 'openclaw.json'),
+    ];
+    let cfgPath = null;
+    for (const c of configCandidates) {
+      if (fs.existsSync(c)) { cfgPath = c; break; }
+    }
+    if (!cfgPath) return defaults;
     const obj = readJsonIfExists(cfgPath, {});
     const pol =
       obj &&

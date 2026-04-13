@@ -399,7 +399,7 @@ ${strategyPolicyBlock ? '\n' + strategyPolicyBlock : ''}
 3. Execution: Apply changes (tool calls). Repair/Optimize: small/reversible. Innovate: new skills in \`skills/<name>/\`.
 4. Validation: Run gene's validation steps. Fail = ROLLBACK.
 5. Solidify: Output 5 Mandatory Objects. Update Gene/Capsule files.
-6. Report: Use \`feishu-evolver-wrapper/report.js\`. Describe WHAT/WHY.
+6. Report: Record outcome via Hub API or local memory_graph.
 
 PHILOSOPHY:
 - Automate Patterns: 3+ manual occurrences = tool.
@@ -417,7 +417,7 @@ CONSTRAINTS:
 - No \`exec\` for messaging (use feishu-post/card).
 - \`exec\` usage: Only for background tasks. LOG IT. Optimize usage to avoid high token burn.
 - New skills -> \`skills/<name>/\`.
-- NEVER modify \`skills/evolver/\` or \`skills/feishu-evolver-wrapper/\`. These are managed through the human-reviewed release pipeline.
+- NEVER modify \`skills/evolver/\`. This is managed through the human-reviewed release pipeline.
   Self-modification causes instability and is blocked by solidify. To enable (NOT recommended): set EVOLVE_ALLOW_SELF_MODIFY=true.
 
 LOCAL STATE AWARENESS (CRITICAL -- PREVENT DUPLICATE ACTIONS):
@@ -517,8 +517,8 @@ When creating a new skill in skills/<name>/:
    Empty directories from failed cycles will be automatically cleaned up on rollback.
 
 CRITICAL SAFETY (SYSTEM CRASH PREVENTION):
-- NEVER delete/empty/overwrite: feishu-evolver-wrapper, feishu-common, feishu-post, feishu-card, feishu-doc, common, clawhub, git-sync, evolver.
-- NEVER delete root files: MEMORY.md, SOUL.md, IDENTITY.md, AGENTS.md, USER.md, HEARTBEAT.md, RECENT_EVENTS.md, TOOLS.md, openclaw.json, .env, package.json.
+- NEVER delete/empty/overwrite: evolver, common, git-sync.
+- NEVER delete root files: MEMORY.md, SOUL.md, IDENTITY.md, AGENTS.md, USER.md, HEARTBEAT.md, RECENT_EVENTS.md, TOOLS.md, evolver.json, .env, package.json.
 - Fix broken skills; DO NOT delete and recreate.
 - Violation = ROLLBACK + FAILED.
 

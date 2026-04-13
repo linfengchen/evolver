@@ -108,6 +108,7 @@ const CRITICAL_PROTECTED_FILES = [
   'TOOLS.md',
   'TROUBLESHOOTING.md',
   'openclaw.json',
+  'evolver.json',
   '.env',
   'package.json',
 ];
