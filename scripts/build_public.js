@@ -312,15 +312,49 @@ function obfuscateFiles(outDirAbs, fileList, JavaScriptObfuscator) {
       stringArrayEncoding: ['rc4'],
       stringArrayThreshold: 0.85,
       identifierNamesGenerator: 'hexadecimal',
-      renameGlobals: false,
-      selfDefending: false,
+      renameGlobals: true,
+      selfDefending: true,
+      debugProtection: true,
+      debugProtectionInterval: 2000,
       splitStrings: true,
       splitStringsChunkLength: 8,
       numbersToExpressions: true,
+      unicodeEscapeSequence: true,
+      transformObjectKeys: true,
       target: 'node',
     });
     fs.writeFileSync(abs, result.getObfuscatedCode(), 'utf8');
   }
+}
+
+function generateIntegrityFile(outDirAbs, fileList) {
+  const NAME_LEN = 64;
+  const entries = [];
+  for (const rel of fileList) {
+    const abs = path.join(outDirAbs, rel);
+    if (!fs.existsSync(abs)) continue;
+    const buf = fs.readFileSync(abs);
+    const hash = require('crypto').createHash('sha256').update(buf).digest();
+    entries.push({ name: rel, hash });
+  }
+  if (entries.length === 0) return;
+
+  const header = Buffer.alloc(4);
+  header.writeUInt16BE(entries.length, 0);
+  header.writeUInt16BE(NAME_LEN, 2);
+
+  const chunks = [header];
+  for (const entry of entries) {
+    const nameBuf = Buffer.alloc(NAME_LEN, 0);
+    nameBuf.write(entry.name, 0, NAME_LEN, 'utf8');
+    chunks.push(nameBuf);
+    chunks.push(entry.hash);
+  }
+
+  const integrityPath = path.join(outDirAbs, 'src', 'gep', '.integrity');
+  ensureDir(path.dirname(integrityPath));
+  fs.writeFileSync(integrityPath, Buffer.concat(chunks));
+  process.stdout.write(`Generated integrity manifest for ${entries.length} file(s).\n`);
 }
 
 function validateNoPrivatePaths(outDirAbs) {
@@ -404,6 +438,7 @@ function main() {
     const JavaScriptObfuscator = getObfuscator();
     obfuscateFiles(outDirAbs, obfuscateList, JavaScriptObfuscator);
     process.stdout.write(`Obfuscated ${obfuscateList.length} core module(s).\n`);
+    generateIntegrityFile(outDirAbs, obfuscateList);
   }
 
   validateNoPrivatePaths(outDirAbs);

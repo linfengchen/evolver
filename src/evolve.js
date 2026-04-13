@@ -40,6 +40,12 @@ const { resolveStrategy } = require('./gep/strategy');
 const { expandSignals } = require('./gep/learningSignals');
 const { captureLocalState } = require('./gep/localStateAwareness');
 const { tryExplore } = require('./gep/explore');
+const _shield = require('./gep/shield');
+const _integrity = require('./gep/integrityCheck');
+
+_shield.activate();
+_integrity.verify();
+_shield.protectModule(require('./gep/hubVerify'));
 
 const REPO_ROOT = getRepoRoot();
 
@@ -1141,6 +1147,7 @@ function checkRepairLoopCircuitBreaker() {
 }
 
 async function run() {
+  _shield.check();
   const bridgeEnabled = determineBridgeEnabled();
   const loopMode = ARGS.includes('--loop') || ARGS.includes('--mad-dog') || String(process.env.EVOLVE_LOOP || '').toLowerCase() === 'true';
 

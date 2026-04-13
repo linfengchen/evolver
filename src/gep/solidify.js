@@ -36,7 +36,9 @@ const { logAssetCall } = require('./assetCallLog');
 const { recordNarrative } = require('./narrativeMemory');
 const { isLlmReviewEnabled, runLlmReview } = require('./llmReview');
 const { buildExecutionTrace } = require('./executionTrace');
-const { requestSolidifyPermitSync, isSolidifyVerifyEnabled } = require('./hubVerify');
+const { requestSolidifyPermitSync, isSolidifyVerifyEnabled, consumeOfflinePermit } = require('./hubVerify');
+const _integrity = require('./integrityCheck');
+const _shield = require('./shield');
 
 function nowIso() {
   return new Date().toISOString();
@@ -669,6 +671,14 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
   // Capture environment fingerprint before validation.
   const envFp = captureEnvFingerprint();
 
+  _shield.check();
+  _integrity.verify();
+
+  if (_integrity.isDegraded() || _shield.isDegraded()) {
+    constraintCheck.violations.push('internal_constraint_check_failed');
+    constraintCheck.ok = false;
+  }
+
   // --- Hub solidify verification gate ---
   // When connected to Hub, require online authorization before proceeding.
   // This prevents cloned/pirated evolver instances from using core evolution logic.
@@ -684,12 +694,26 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
       console.log('[HubVerify] Permit request failed (non-fatal): ' + (e && e.message ? e.message : e));
       hubPermit = null;
     }
+    if (hubPermit && hubPermit.offline && !hubPermit.ok) {
+      try {
+        hubPermit = consumeOfflinePermit();
+        if (hubPermit.ok) {
+          console.log('[HubVerify] Offline permit consumed (remaining: ' + (hubPermit.remaining || '?') + ').');
+        }
+      } catch (e) {
+        hubPermit = { ok: false, error: 'offline_permit_failed' };
+      }
+    }
     if (hubPermit && !hubPermit.ok && !hubPermit.offline) {
       constraintCheck.violations.push('hub_solidify_verification_denied: ' + (hubPermit.error || 'unknown'));
       constraintCheck.ok = false;
       console.error('[HubVerify] Solidify DENIED by Hub: ' + (hubPermit.error || 'unknown'));
+    } else if (hubPermit && !hubPermit.ok && hubPermit.offline) {
+      constraintCheck.violations.push('hub_solidify_offline_denied: ' + (hubPermit.error || 'no_offline_quota'));
+      constraintCheck.ok = false;
+      console.error('[HubVerify] Solidify DENIED (offline quota): ' + (hubPermit.error || 'no_offline_quota'));
     } else if (hubPermit && hubPermit.ok) {
-      console.log('[HubVerify] Solidify authorized by Hub (permit issued).');
+      console.log('[HubVerify] Solidify authorized' + (hubPermit.offline ? ' (offline)' : ' by Hub') + '.');
     }
   }
 

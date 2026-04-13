@@ -14,11 +14,14 @@ describe('hubVerify', function () {
   it('isSolidifyVerifyEnabled returns false when explicitly disabled', function () {
     const origUrl = process.env.A2A_HUB_URL;
     const origVerify = process.env.EVOLVER_SOLIDIFY_VERIFY;
+    const origNodeEnv = process.env.NODE_ENV;
     process.env.A2A_HUB_URL = 'https://example.com';
     process.env.EVOLVER_SOLIDIFY_VERIFY = 'false';
+    process.env.NODE_ENV = 'test';
     assert.strictEqual(isSolidifyVerifyEnabled(), false);
     if (origUrl !== undefined) process.env.A2A_HUB_URL = origUrl; else delete process.env.A2A_HUB_URL;
     if (origVerify !== undefined) process.env.EVOLVER_SOLIDIFY_VERIFY = origVerify; else delete process.env.EVOLVER_SOLIDIFY_VERIFY;
+    if (origNodeEnv !== undefined) process.env.NODE_ENV = origNodeEnv; else delete process.env.NODE_ENV;
   });
 
   it('isSolidifyVerifyEnabled returns true when hub URL is set', function () {
@@ -38,5 +41,24 @@ describe('hubVerify', function () {
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.offline, true);
     if (origUrl !== undefined) process.env.A2A_HUB_URL = origUrl;
+  });
+
+  it('consumeOfflinePermit returns error when no token cached', function () {
+    const { consumeOfflinePermit } = require('../src/gep/hubVerify');
+    const result = consumeOfflinePermit();
+    assert.strictEqual(result.ok, false);
+  });
+
+  it('isSolidifyVerifyEnabled ignores env var disable in non-test env', function () {
+    const origUrl = process.env.A2A_HUB_URL;
+    const origVerify = process.env.EVOLVER_SOLIDIFY_VERIFY;
+    const origNodeEnv = process.env.NODE_ENV;
+    process.env.A2A_HUB_URL = 'https://example.com';
+    process.env.EVOLVER_SOLIDIFY_VERIFY = 'false';
+    process.env.NODE_ENV = 'production';
+    assert.strictEqual(isSolidifyVerifyEnabled(), true);
+    if (origUrl !== undefined) process.env.A2A_HUB_URL = origUrl; else delete process.env.A2A_HUB_URL;
+    if (origVerify !== undefined) process.env.EVOLVER_SOLIDIFY_VERIFY = origVerify; else delete process.env.EVOLVER_SOLIDIFY_VERIFY;
+    if (origNodeEnv !== undefined) process.env.NODE_ENV = origNodeEnv; else delete process.env.NODE_ENV;
   });
 });

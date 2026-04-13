@@ -52,7 +52,19 @@
     "src/gep/memoryGraphAdapter.js",
     "src/gep/strategy.js",
     "src/gep/candidateEval.js",
-    "src/gep/hubVerify.js"
+    "src/gep/hubVerify.js",
+    "src/gep/crypto.js",
+    "src/gep/contentHash.js",
+    "src/gep/a2aProtocol.js",
+    "src/gep/hubSearch.js",
+    "src/gep/hubReview.js",
+    "src/gep/policyCheck.js",
+    "src/gep/deviceId.js",
+    "src/gep/envFingerprint.js",
+    "src/gep/skillDistiller.js",
+    "src/gep/explore.js",
+    "src/gep/integrityCheck.js",
+    "src/gep/shield.js"
   ],
   "rewrite": {
     "package.json": {
