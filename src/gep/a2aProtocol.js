@@ -652,6 +652,14 @@ function sendHeartbeat() {
           return { ok: helloResult.ok, response: data, reregistered: helloResult.ok };
         });
       }
+      if (data && data.resend_hello) {
+        console.log('[Heartbeat] Hub requests re-hello (' + (data.resend_reason || 'unspecified') + '). Sending hello...');
+        _heartbeatFpSent = false;
+        sendHelloToHub().then(function (r) {
+          if (r.ok) console.log('[Heartbeat] Re-hello sent successfully.');
+          else console.warn('[Heartbeat] Re-hello failed: ' + (r.error || 'unknown'));
+        }).catch(function () {});
+      }
       if (Array.isArray(data.available_work)) {
         _latestAvailableWork = data.available_work;
       }
