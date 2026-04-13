@@ -42,109 +42,6 @@ function resolveGhExecutable() {
   return null;
 }
 
-function resolveClawhubExecutable() {
-  // On Windows, Node spawn/spawnSync does not always resolve PATHEXT the same way as shells.
-  // Prefer the explicit .cmd shim when available to avoid false "not logged in" detection.
-  if (process.platform === 'win32') {
-    if (hasCommand('clawhub.cmd')) return 'clawhub.cmd';
-    if (hasCommand('clawhub')) return 'clawhub';
-  } else {
-    if (hasCommand('clawhub')) return 'clawhub';
-  }
-  // Common npm global bin location on Windows.
-  const candidates = [
-    'C:\\Users\\Administrator\\AppData\\Roaming\\npm\\clawhub.cmd',
-    'C:\\Users\\Administrator\\AppData\\Roaming\\npm\\clawhub.exe',
-    'C:\\Users\\Administrator\\AppData\\Roaming\\npm\\clawhub.ps1',
-  ];
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) return p;
-    } catch (e) {
-      // ignore
-    }
-  }
-  return null;
-}
-
-function canUseClawhub() {
-  const exe = resolveClawhubExecutable();
-  if (!exe) return { ok: false, reason: 'clawhub CLI not found (install: npm i -g clawhub)' };
-  return { ok: true, exe };
-}
-
-function isClawhubLoggedIn() {
-  const exe = resolveClawhubExecutable();
-  if (!exe) return false;
-  try {
-    const res = spawnClawhub(exe, ['whoami'], { stdio: 'ignore' });
-    return res.status === 0;
-  } catch (e) {
-    return false;
-  }
-}
-
-function spawnClawhub(exe, args, options) {
-  // On Windows, directly spawning a .cmd can be flaky; using cmd.exe preserves argument parsing.
-  // (Using shell:true can break clap/commander style option parsing for some CLIs.)
-  const opts = options || {};
-  if (process.platform === 'win32' && typeof exe === 'string') {
-    const lower = exe.toLowerCase();
-    if (lower.endsWith('.cmd')) {
-      return spawnSync('cmd.exe', ['/d', '/s', '/c', exe, ...(args || [])], opts);
-    }
-  }
-  return spawnSync(exe, args || [], opts);
-}
-
-function publishToClawhub({ skillDir, slug, name, version, changelog, tags, dryRun }) {
-  const ok = canUseClawhub();
-  if (!ok.ok) throw new Error(ok.reason);
-
-  // Idempotency: if this version already exists on ClawHub, skip publishing.
-  try {
-    const inspect = spawnClawhub(ok.exe, ['inspect', slug, '--version', version], { stdio: 'ignore' });
-    if (inspect.status === 0) {
-      process.stdout.write(`ClawHub already has ${slug}@${version}. Skipping.\n`);
-      return;
-    }
-  } catch (e) {
-    // ignore inspect failures; publish will surface errors if needed
-  }
-
-  if (!dryRun && !isClawhubLoggedIn()) {
-    throw new Error('Not logged in to ClawHub. Run: clawhub login');
-  }
-
-  const args = ['publish', skillDir, '--slug', slug, '--name', name, '--version', version];
-  if (changelog) args.push('--changelog', changelog);
-  if (tags) args.push('--tags', tags);
-
-  if (dryRun) {
-    process.stdout.write(`[dry-run] ${ok.exe} ${args.map(a => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}\n`);
-    return;
-  }
-
-  // Capture output to handle "version already exists" idempotently.
-  const res = spawnClawhub(ok.exe, args, { encoding: 'utf8' });
-  const out = `${res.stdout || ''}\n${res.stderr || ''}`.trim();
-
-  if (res.status === 0) {
-    if (out) process.stdout.write(out + '\n');
-    return;
-  }
-
-  // Some clawhub deployments do not support reliable "inspect" by slug.
-  // Treat "Version already exists" as success to make publishing idempotent.
-  if (/version already exists/i.test(out)) {
-    process.stdout.write(`ClawHub already has ${slug}@${version}. Skipping.\n`);
-    return;
-  }
-
-  if (out) process.stderr.write(out + '\n');
-  throw new Error(`clawhub publish failed for slug ${slug}`);
-}
-
 function requireEnv(name, value) {
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
@@ -442,11 +339,6 @@ function main() {
   const useBuildOutput = String(process.env.PUBLIC_USE_BUILD_OUTPUT || 'true').toLowerCase() === 'true';
   const releaseOnly = String(process.env.PUBLIC_RELEASE_ONLY || '').toLowerCase() === 'true';
 
-  const clawhubSkip = String(process.env.CLAWHUB_SKIP || '').toLowerCase() === 'true';
-  const clawhubPublish = String(process.env.CLAWHUB_PUBLISH || '').toLowerCase() === 'false' ? false : !clawhubSkip;
-  // Workaround for registry redirect/auth issues: default to the www endpoint.
-  const clawhubRegistry = process.env.CLAWHUB_REGISTRY || 'https://www.clawhub.ai';
-
   // If publishing build output, require a repo URL or GH repo slug for cloning.
   if (useBuildOutput) {
     requireEnv('PUBLIC_REPO', publicRepo);
@@ -610,34 +502,6 @@ function main() {
         dryRun,
       });
     }
-  }
-
-  // Publish to ClawHub after GitHub release succeeds (default enabled).
-  if (clawhubPublish && releaseVersion) {
-    process.env.CLAWHUB_REGISTRY = clawhubRegistry;
-
-    const skillDir = useBuildOutput ? path.resolve(process.cwd(), outDir) : process.cwd();
-    const changelog = releaseTitle ? `GitHub Release ${releaseTitle}` : `GitHub Release ${releaseTag}`;
-
-    publishToClawhub({
-      skillDir,
-      slug: 'evolver',
-      name: 'Evolver',
-      version: releaseVersion,
-      changelog,
-      tags: 'latest',
-      dryRun,
-    });
-
-    publishToClawhub({
-      skillDir,
-      slug: 'capability-evolver',
-      name: 'Evolver',
-      version: releaseVersion,
-      changelog,
-      tags: 'latest',
-      dryRun,
-    });
   }
 }
 
