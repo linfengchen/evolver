@@ -104,16 +104,8 @@ const MEMORY_DIR = getMemoryDir();
 const AGENT_NAME = process.env.AGENT_NAME || 'main';
 const AGENT_SESSIONS_DIR = path.join(os.homedir(), `.openclaw/agents/${AGENT_NAME}/sessions`);
 const CURSOR_TRANSCRIPTS_DIR = process.env.EVOLVER_CURSOR_TRANSCRIPTS_DIR || '';
-const SESSION_SOURCE = (process.env.EVOLVER_SESSION_SOURCE || detectSessionSource()).toLowerCase();
+const SESSION_SOURCE = (process.env.EVOLVER_SESSION_SOURCE || 'auto').toLowerCase();
 const TODAY_LOG = path.join(MEMORY_DIR, new Date().toISOString().split('T')[0] + '.md');
-
-function detectSessionSource() {
-  if (process.env.CURSOR_TRACE_DIR || fs.existsSync(path.join(os.homedir(), '.cursor'))) return 'cursor';
-  if (fs.existsSync(path.join(os.homedir(), '.claude'))) return 'cursor';
-  if (fs.existsSync(path.join(os.homedir(), '.codex'))) return 'cursor';
-  if (fs.existsSync(AGENT_SESSIONS_DIR)) return 'auto';
-  return 'cursor';
-}
 
 // Ensure memory directory exists so state/cache writes work.
 try {
@@ -443,8 +435,8 @@ function readOpenClawSessions() {
 function readRealSessionLog() {
   try {
     // SESSION_SOURCE controls which transcript source to use:
-    //   'auto'     = OpenClaw primary, Cursor/Codex/Manus fallback (backward compat)
-    //   'cursor'   = Cursor/Codex/Manus transcripts only (skip OpenClaw)
+    //   'auto'     = detect available sources: OpenClaw if present, Cursor/IDE if present, both if both
+    //   'cursor'   = Cursor/Codex/Claude Code transcripts only (skip OpenClaw)
     //   'openclaw' = OpenClaw sessions only (explicit)
     //   'merge'    = combine both sources, newest sections first
 
@@ -469,14 +461,27 @@ function readRealSessionLog() {
       return ocContent || cursorContent || '[NO SESSION LOGS FOUND]';
     }
 
-    // 'auto': detect environment -- Cursor/IDE transcripts first, OpenClaw fallback
-    const cursorContent = readCursorTranscripts();
-    if (cursorContent) return cursorContent;
+    // 'auto' (default): detect which sources have data, use the one that does
+    const hasOpenClaw = fs.existsSync(AGENT_SESSIONS_DIR);
+    const hasCursorDir = CURSOR_TRANSCRIPTS_DIR || process.env.CURSOR_TRACE_DIR ||
+      fs.existsSync(path.join(os.homedir(), '.cursor')) ||
+      fs.existsSync(path.join(os.homedir(), '.claude')) ||
+      fs.existsSync(path.join(os.homedir(), '.codex'));
 
-    const ocContent = readOpenClawSessions();
-    if (ocContent) {
-      console.log('[SessionFallback] Using OpenClaw sessions as session source.');
-      return ocContent;
+    if (hasOpenClaw && hasCursorDir) {
+      const ocContent = readOpenClawSessions();
+      const cursorContent = readCursorTranscripts();
+      return ocContent || cursorContent || '[NO SESSION LOGS FOUND]';
+    }
+
+    if (hasOpenClaw) {
+      const ocContent = readOpenClawSessions();
+      if (ocContent) return ocContent;
+    }
+
+    if (hasCursorDir) {
+      const cursorContent = readCursorTranscripts();
+      if (cursorContent) return cursorContent;
     }
 
     return '[NO SESSION LOGS FOUND]';
@@ -900,6 +905,12 @@ function checkAndAutoUpdate() {
 
     if (clawhubBin) {
       const slugs = ['evolver'];
+      // Detect Feishu environment: include wrapper only if feishu-evolver-wrapper is installed
+      const isFeishuEnv = fs.existsSync(path.resolve(REPO_ROOT, '..', 'feishu-evolver-wrapper'))
+        || fs.existsSync(path.resolve(REPO_ROOT, '..', 'feishu-evolver-wrapper-private'))
+        || process.env.FEISHU_EVOLVER_INTERVAL;
+      if (isFeishuEnv) slugs.push('feishu-evolver-wrapper');
+
       for (const slug of slugs) {
         try {
           const out = execSync(`${clawhubBin} update ${slug} --force`, {
