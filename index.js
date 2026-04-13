@@ -738,8 +738,41 @@ async function main() {
       console.log('');
     }
 
+  } else if (command === 'setup-hooks') {
+    const { setupHooks } = require('./src/adapters/hookAdapter');
+
+    const platformFlag = args.find(a => typeof a === 'string' && a.startsWith('--platform='));
+    const platform = platformFlag ? platformFlag.slice('--platform='.length) : undefined;
+    const force = args.includes('--force');
+    const uninstall = args.includes('--uninstall');
+
+    try {
+      const result = await setupHooks({
+        platform,
+        cwd: process.cwd(),
+        force,
+        uninstall,
+        evolverRoot: __dirname,
+      });
+      if (result && result.ok) {
+        if (!uninstall && result.files) {
+          console.log('\n[setup-hooks] Files created/updated:');
+          for (const f of result.files) {
+            console.log('  ' + f);
+          }
+        }
+        process.exit(0);
+      } else {
+        console.error('[setup-hooks] Failed: ' + (result && result.error || 'unknown'));
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('[setup-hooks] Error:', error && error.message || error);
+      process.exit(1);
+    }
+
   } else {
-    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log] [--loop]
+    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks] [--loop]
   - fetch flags:
     - --skill=<id> | -s <id>   (skill ID to download)
     - --out=<dir>              (output directory, default: ./skills/<skill_id>)
@@ -753,6 +786,10 @@ async function main() {
     - --reject                 (reject and rollback the pending changes)
   - distill flags:
     - --response-file=<path>  (LLM response file for skill distillation)
+  - setup-hooks flags:
+    - --platform=cursor|claude-code|codex  (auto-detect if omitted)
+    - --force                              (overwrite existing config)
+    - --uninstall                          (remove evolver hooks)
   - asset-log flags:
     - --run=<run_id>           (filter by run ID)
     - --action=<action>        (filter: hub_search_hit, hub_search_miss, asset_reuse, asset_reference, asset_publish, asset_publish_skip)
