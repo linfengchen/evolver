@@ -6,11 +6,11 @@
 // - Code content: never sent, only statistical metrics (lines, files)
 // - Error messages: type signature only (TypeError: x is not a function -> TypeError)
 // - Environment variables, secrets, user data: stripped entirely
-// - Configurable via EVOLVER_TRACE_LEVEL: none | minimal | standard (default: minimal)
+// - Configurable via EVOLVER_TRACE_LEVEL: none | minimal | standard | collaboration (default: minimal)
 
 const path = require('path');
 
-const TRACE_LEVELS = { none: 0, minimal: 1, standard: 2 };
+const TRACE_LEVELS = { none: 0, minimal: 1, standard: 2, collaboration: 3 };
 
 function getTraceLevel() {
   const raw = String(process.env.EVOLVER_TRACE_LEVEL || 'minimal').toLowerCase().trim();
@@ -89,6 +89,7 @@ function buildExecutionTrace({
   canary,
   outcomeStatus,
   startedAt,
+  collaborationContext,
 }) {
   const level = getTraceLevel();
   if (level === 'none') return null;
@@ -182,6 +183,95 @@ function buildExecutionTrace({
     // Canary result
     if (canary && !canary.skipped) {
       trace.canary_ok = !!canary.ok;
+    }
+  }
+
+  // Collaboration level: swarm interaction decision traces
+  if (level === 'collaboration') {
+    // Include everything from standard level
+    if (blast && Array.isArray(blast.changed_files)) {
+      if (!trace.file_types) {
+        trace.file_types = {};
+        for (const f of blast.changed_files) {
+          const ext = path.extname(f) || '.unknown';
+          trace.file_types[ext] = (trace.file_types[ext] || 0) + 1;
+        }
+      }
+    }
+
+    if (validation && Array.isArray(validation.results)) {
+      if (!trace.validation_commands) {
+        trace.validation_commands = validation.results.map(r => String(r.cmd || '').slice(0, 100));
+      }
+    }
+
+    if (!trace.error_signatures) trace.error_signatures = [];
+    if (!trace.tool_chain) {
+      trace.tool_chain = inferToolChain(
+        validation && validation.results ? validation.results : [],
+        blast
+      );
+    }
+
+    if (canary && !canary.skipped && trace.canary_ok === undefined) {
+      trace.canary_ok = !!canary.ok;
+    }
+
+    // Collaboration-specific fields
+    trace.collaboration = {};
+
+    if (collaborationContext) {
+      const ctx = collaborationContext;
+
+      if (ctx.roleDecision) {
+        trace.collaboration.role_decision = {
+          chosen_role: ctx.roleDecision.chosenRole || null,
+          reasoning: (ctx.roleDecision.reasoning || '').slice(0, 500),
+          alternatives_considered: Array.isArray(ctx.roleDecision.alternatives)
+            ? ctx.roleDecision.alternatives.slice(0, 5)
+            : [],
+        };
+      }
+
+      if (ctx.teammateOutputsConsumed) {
+        trace.collaboration.context_consumption = Array.isArray(ctx.teammateOutputsConsumed)
+          ? ctx.teammateOutputsConsumed.slice(0, 10).map(o => ({
+              from_node_id: o.fromNodeId || null,
+              output_type: o.outputType || 'unknown',
+              consumed_bytes: Number(o.consumedBytes) || 0,
+              usage_summary: (o.usageSummary || '').slice(0, 200),
+            }))
+          : [];
+      }
+
+      if (ctx.delegations) {
+        trace.collaboration.delegations = Array.isArray(ctx.delegations)
+          ? ctx.delegations.slice(0, 10).map(d => ({
+              to_node_id: d.toNodeId || null,
+              task_title: (d.taskTitle || '').slice(0, 100),
+              role: d.role || 'builder',
+            }))
+          : [];
+      }
+
+      if (ctx.reviewFeedback) {
+        trace.collaboration.review_feedback = {
+          score: Math.max(0, Math.min(100, Number(ctx.reviewFeedback.score) || 0)),
+          issues_count: Number(ctx.reviewFeedback.issuesCount) || 0,
+          fix_instructions_count: Number(ctx.reviewFeedback.fixInstructionsCount) || 0,
+        };
+      }
+
+      if (ctx.roleSwitch) {
+        trace.collaboration.role_switch = {
+          from_role: ctx.roleSwitch.fromRole || null,
+          to_role: ctx.roleSwitch.toRole || null,
+          trigger: (ctx.roleSwitch.trigger || '').slice(0, 200),
+        };
+      }
+
+      if (ctx.sessionId) trace.collaboration.session_id = ctx.sessionId;
+      if (ctx.teamSize) trace.collaboration.team_size = Math.max(0, Number(ctx.teamSize) || 0);
     }
   }
 

@@ -9,6 +9,7 @@ const path = require('path');
 const { MailboxStore } = require('../src/proxy/mailbox/store');
 const { SkillUpdater } = require('../src/proxy/extensions/skillUpdater');
 const { DmHandler } = require('../src/proxy/extensions/dmHandler');
+const { SessionHandler } = require('../src/proxy/extensions/sessionHandler');
 
 function tmpDataDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'extensions-test-'));
@@ -158,5 +159,130 @@ describe('DmHandler', () => {
   it('lists DM history', () => {
     const msgs = handler.list();
     assert.ok(Array.isArray(msgs));
+  });
+});
+
+describe('SessionHandler', () => {
+  let store, handler, dataDir;
+
+  before(() => {
+    dataDir = tmpDataDir();
+    store = new MailboxStore(dataDir);
+    handler = new SessionHandler({ store });
+  });
+
+  after(() => {
+    store.close();
+    try { fs.rmSync(dataDir, { recursive: true }); } catch {}
+  });
+
+  it('creates a session and stores outbound message', () => {
+    const result = handler.createSession({
+      title: 'Test Session',
+      description: 'A test collaboration session',
+      inviteNodeIds: ['node_a', 'node_b'],
+    });
+    assert.ok(result.message_id);
+    assert.equal(result.status, 'pending');
+
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_create');
+    assert.equal(msg.direction, 'outbound');
+    assert.equal(msg.payload.title, 'Test Session');
+    assert.deepEqual(msg.payload.invite_node_ids, ['node_a', 'node_b']);
+  });
+
+  it('throws on missing title', () => {
+    assert.throws(() => handler.createSession({}), /title/);
+  });
+
+  it('joins a session', () => {
+    const result = handler.joinSession({ sessionId: 'sess_123' });
+    assert.ok(result.message_id);
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_join');
+    assert.equal(msg.payload.session_id, 'sess_123');
+  });
+
+  it('throws on join without sessionId', () => {
+    assert.throws(() => handler.joinSession({}), /sessionId/);
+  });
+
+  it('leaves a session', () => {
+    const result = handler.leaveSession({ sessionId: 'sess_456' });
+    assert.ok(result.message_id);
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_leave');
+  });
+
+  it('sends a message to a session', () => {
+    const result = handler.sendMessage({
+      sessionId: 'sess_789',
+      toNodeId: 'node_c',
+      msgType: 'context_update',
+      payload: { key: 'value' },
+    });
+    assert.ok(result.message_id);
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_message');
+    assert.equal(msg.payload.session_id, 'sess_789');
+    assert.equal(msg.payload.to_node_id, 'node_c');
+  });
+
+  it('throws on send message with oversized payload', () => {
+    const bigPayload = { data: 'x'.repeat(17000) };
+    assert.throws(() => handler.sendMessage({
+      sessionId: 'sess_big',
+      payload: bigPayload,
+    }), /too large/);
+  });
+
+  it('delegates a subtask', () => {
+    const result = handler.delegateSubtask({
+      sessionId: 'sess_del',
+      toNodeId: 'node_worker',
+      title: 'Implement feature X',
+      role: 'builder',
+    });
+    assert.ok(result.message_id);
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_delegate');
+    assert.equal(msg.payload.role, 'builder');
+    assert.equal(msg.payload.title, 'Implement feature X');
+  });
+
+  it('normalizes invalid role to builder', () => {
+    const result = handler.delegateSubtask({
+      sessionId: 'sess_role',
+      title: 'Fix bug',
+      role: 'invalid_role',
+    });
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.payload.role, 'builder');
+  });
+
+  it('submits a result', () => {
+    const result = handler.submitResult({
+      sessionId: 'sess_sub',
+      taskId: 'task_1',
+      resultAssetId: 'asset_1',
+      summary: 'Completed the implementation',
+    });
+    assert.ok(result.message_id);
+    const msg = store.getById(result.message_id);
+    assert.equal(msg.type, 'session_submit');
+    assert.equal(msg.payload.task_id, 'task_1');
+  });
+
+  it('polls session invites', () => {
+    store.writeInbound({ type: 'collaboration_invite', payload: { session_id: 's1' } });
+    const msgs = handler.pollInvites();
+    assert.ok(msgs.length >= 1);
+  });
+
+  it('lists active sessions', () => {
+    const sessions = handler.listActiveSessions();
+    assert.ok(Array.isArray(sessions));
+    assert.ok(sessions.length > 0);
   });
 });

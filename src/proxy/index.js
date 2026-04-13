@@ -10,6 +10,7 @@ const { LifecycleManager } = require('./lifecycle/manager');
 const { TaskMonitor } = require('./task/monitor');
 const { SkillUpdater } = require('./extensions/skillUpdater');
 const { DmHandler } = require('./extensions/dmHandler');
+const { SessionHandler } = require('./extensions/sessionHandler');
 
 const DEFAULT_DATA_DIR = path.join(os.homedir(), '.evomap', 'mailbox');
 
@@ -27,6 +28,7 @@ class EvoMapProxy {
     this.taskMonitor = null;
     this.skillUpdater = null;
     this.dmHandler = null;
+    this.sessionHandler = null;
     this._started = false;
   }
 
@@ -58,6 +60,11 @@ class EvoMapProxy {
       logger: this.logger,
     });
 
+    this.sessionHandler = new SessionHandler({
+      store: this.store,
+      logger: this.logger,
+    });
+
     const getHeaders = () => this.lifecycle._buildHeaders();
     const taskMonitor = this.taskMonitor;
 
@@ -80,6 +87,7 @@ class EvoMapProxy {
     const routes = buildRoutes(this.store, proxyHandlers, this.taskMonitor, {
       dmHandler: this.dmHandler,
       skillUpdater: this.skillUpdater,
+      sessionHandler: this.sessionHandler,
       getHubMailboxStatus: () => this._getHubMailboxStatus(),
     });
 
@@ -91,6 +99,12 @@ class EvoMapProxy {
       'POST /task/subscribe',
       'POST /task/unsubscribe',
       'POST /dm/send',
+      'POST /session/create',
+      'POST /session/join',
+      'POST /session/leave',
+      'POST /session/message',
+      'POST /session/delegate',
+      'POST /session/submit',
     ];
     for (const key of OUTBOUND_ROUTES) {
       const original = routes[key];

@@ -3,7 +3,7 @@
 const { PROXY_PROTOCOL_VERSION, SCHEMA_VERSION } = require('../mailbox/store');
 
 function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
-  const { dmHandler, skillUpdater, getHubMailboxStatus } = extensions || {};
+  const { dmHandler, skillUpdater, getHubMailboxStatus, sessionHandler } = extensions || {};
   return {
     // -- Mailbox --
     'POST /mailbox/send': async ({ body }) => {
@@ -217,6 +217,143 @@ function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
         offset: Number(query.offset) || 0,
       });
       return { body: { messages, count: messages.length } };
+    },
+
+    // -- Session (Collaboration) --
+    'POST /session/create': async ({ body }) => {
+      if (!body.title) throw Object.assign(new Error('title is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.createSession({
+          title: body.title,
+          description: body.description,
+          inviteNodeIds: body.invite_node_ids,
+          maxParticipants: body.max_participants,
+        });
+        return { body: result };
+      }
+      const result = store.send({
+        type: 'session_create',
+        payload: {
+          title: body.title,
+          description: body.description || '',
+          invite_node_ids: body.invite_node_ids || [],
+          max_participants: body.max_participants || 5,
+        },
+      });
+      return { body: result };
+    },
+
+    'POST /session/join': async ({ body }) => {
+      if (!body.session_id) throw Object.assign(new Error('session_id is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.joinSession({ sessionId: body.session_id });
+        return { body: result };
+      }
+      const result = store.send({ type: 'session_join', payload: { session_id: body.session_id } });
+      return { body: result };
+    },
+
+    'POST /session/leave': async ({ body }) => {
+      if (!body.session_id) throw Object.assign(new Error('session_id is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.leaveSession({ sessionId: body.session_id });
+        return { body: result };
+      }
+      const result = store.send({ type: 'session_leave', payload: { session_id: body.session_id } });
+      return { body: result };
+    },
+
+    'POST /session/message': async ({ body }) => {
+      if (!body.session_id) throw Object.assign(new Error('session_id is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.sendMessage({
+          sessionId: body.session_id,
+          toNodeId: body.to_node_id,
+          msgType: body.msg_type,
+          payload: body.payload,
+        });
+        return { body: result };
+      }
+      const result = store.send({
+        type: 'session_message',
+        payload: {
+          session_id: body.session_id,
+          to_node_id: body.to_node_id || null,
+          msg_type: body.msg_type || 'context_update',
+          payload: body.payload || {},
+        },
+      });
+      return { body: result };
+    },
+
+    'POST /session/delegate': async ({ body }) => {
+      if (!body.session_id) throw Object.assign(new Error('session_id is required'), { statusCode: 400 });
+      if (!body.title) throw Object.assign(new Error('title is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.delegateSubtask({
+          sessionId: body.session_id,
+          toNodeId: body.to_node_id,
+          title: body.title,
+          description: body.description,
+          role: body.role,
+        });
+        return { body: result };
+      }
+      const result = store.send({
+        type: 'session_delegate',
+        payload: {
+          session_id: body.session_id,
+          to_node_id: body.to_node_id || null,
+          title: body.title,
+          description: body.description || '',
+          role: body.role || 'builder',
+        },
+        priority: 'high',
+      });
+      return { body: result };
+    },
+
+    'POST /session/submit': async ({ body }) => {
+      if (!body.session_id) throw Object.assign(new Error('session_id is required'), { statusCode: 400 });
+      if (!body.task_id) throw Object.assign(new Error('task_id is required'), { statusCode: 400 });
+      if (sessionHandler) {
+        const result = sessionHandler.submitResult({
+          sessionId: body.session_id,
+          taskId: body.task_id,
+          resultAssetId: body.result_asset_id,
+          summary: body.summary,
+        });
+        return { body: result };
+      }
+      const result = store.send({
+        type: 'session_submit',
+        payload: {
+          session_id: body.session_id,
+          task_id: body.task_id,
+          result_asset_id: body.result_asset_id || null,
+          summary: body.summary || '',
+        },
+        priority: 'high',
+      });
+      return { body: result };
+    },
+
+    'POST /session/invites/poll': async ({ body }) => {
+      if (sessionHandler) {
+        const messages = sessionHandler.pollInvites({ limit: body.limit });
+        return { body: { messages, count: messages.length } };
+      }
+      const messages = store.poll({ type: 'collaboration_invite', limit: body.limit || 10 });
+      return { body: { messages, count: messages.length } };
+    },
+
+    'GET /session/list': async ({ query }) => {
+      if (sessionHandler) {
+        const sessions = sessionHandler.listActiveSessions();
+        return { body: { sessions, count: sessions.length } };
+      }
+      const sessions = store.list({ type: 'session_create', direction: 'outbound', limit: Number(query.limit) || 20 });
+      return { body: { sessions, count: sessions.length } };
     },
 
     // -- System --
