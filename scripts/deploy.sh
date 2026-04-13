@@ -15,13 +15,11 @@
 #   3. Build public distribution (dist-public/)
 #   4. Deploy to skills/evolver/ in the workspace
 #   5. Publish to GitHub public repo + Release (EvoMap/evolver)
-#   6. Publish to ClawHub (evolver + capability-evolver)
-#   7. Publish to npm (@evomap/evolver)
-#   8. Restart feishu-evolver-wrapper (optional)
+#   6. Publish to npm (@evomap/evolver)
+#   7. Restart feishu-evolver-wrapper (optional)
 #
 # Prerequisites:
 #   - gh CLI authenticated (gh auth login)
-#   - clawhub CLI authenticated (clawhub login)
 #   - npm authenticated (npm login)
 #   - Working directory: evolver-private-dev repo root
 #
@@ -80,9 +78,9 @@ case "$BUMP" in
         ;;
 esac
 
-TOTAL_STEPS=8
+TOTAL_STEPS=7
 if [ "$SKIP_WRAPPER" = true ]; then
-    TOTAL_STEPS=7
+    TOTAL_STEPS=6
 fi
 
 echo "=== Evolver Deploy Pipeline ==="
@@ -113,10 +111,10 @@ else
     echo "  gh CLI: OK"
 fi
 
-if command -v clawhub &>/dev/null; then
-    echo "  clawhub CLI: OK"
+if command -v npm &>/dev/null; then
+    echo "  npm CLI: OK"
 else
-    echo "  WARN: clawhub CLI not found -- ClawHub publish will be skipped"
+    echo "  WARN: npm CLI not found -- npm publish will be skipped"
 fi
 
 if npm whoami &>/dev/null 2>&1; then
@@ -195,17 +193,8 @@ else
     node scripts/publish_public.js 2>&1 || echo "  WARN: publish_public.js exited non-zero (GitHub release may need manual check)"
 fi
 
-# --- Step 6: Publish ClawHub ---
-echo "[6/$TOTAL_STEPS] Publishing to ClawHub..."
-if command -v clawhub &>/dev/null; then
-    run_cmd clawhub publish "$REPO_ROOT/dist-public" --slug evolver --name "Evolver" --version "$NEW_VERSION" --changelog "v$NEW_VERSION" --tags latest 2>&1 || echo "  WARN: evolver slug publish failed"
-    run_cmd clawhub publish "$REPO_ROOT/dist-public" --slug capability-evolver --name "Evolver" --version "$NEW_VERSION" --changelog "v$NEW_VERSION" --tags latest 2>&1 || echo "  WARN: capability-evolver slug publish failed"
-else
-    echo "  SKIP: clawhub CLI not installed"
-fi
-
-# --- Step 7: Publish npm ---
-echo "[7/$TOTAL_STEPS] Publishing to npm (@evomap/evolver)..."
+# --- Step 6: Publish npm ---
+echo "[6/$TOTAL_STEPS] Publishing to npm (@evomap/evolver)..."
 if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] cd dist-public && npm publish --access public"
 else
@@ -214,7 +203,7 @@ fi
 
 # --- Step 8: Restart wrapper ---
 if [ "$SKIP_WRAPPER" = false ]; then
-    echo "[8/$TOTAL_STEPS] Restarting feishu-evolver-wrapper..."
+    echo "[7/$TOTAL_STEPS] Restarting feishu-evolver-wrapper..."
     if [ -d "$WRAPPER_DIR" ] && [ -f "$WRAPPER_DIR/index.js" ]; then
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] pkill + restart feishu-evolver-wrapper"
@@ -236,7 +225,6 @@ fi
 echo ""
 echo "=== Deploy Complete: v$NEW_VERSION ==="
 echo "  GitHub:  https://github.com/$PUBLIC_REPO/releases/tag/v$NEW_VERSION"
-echo "  ClawHub: https://clawhub.ai/autogame-17/evolver"
 echo "  npm:     https://www.npmjs.com/package/@evomap/evolver"
 if [ "$DRY_RUN" = true ]; then
     echo ""

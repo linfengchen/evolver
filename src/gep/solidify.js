@@ -389,7 +389,7 @@ function buildAutoGene({ signals, intent }) {
         '.git', 'node_modules',
         'skills/feishu-evolver-wrapper', 'skills/feishu-common',
         'skills/feishu-post', 'skills/feishu-card', 'skills/feishu-doc',
-        'skills/skill-tools', 'skills/clawhub', 'skills/clawhub-batch-undelete',
+        'skills/skill-tools',
         'skills/git-sync',
       ],
     },

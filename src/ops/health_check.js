@@ -44,7 +44,7 @@ function runHealthCheck() {
         }
     });
 
-    const optionalSecrets = ['CLAWHUB_TOKEN', 'OPENAI_API_KEY'];
+    const optionalSecrets = ['OPENAI_API_KEY'];
     optionalSecrets.forEach(key => {
         if (!process.env[key] || process.env[key].trim() === '') {
             checks.push({ name: `env:${key}`, ok: false, status: 'missing', severity: 'info' });

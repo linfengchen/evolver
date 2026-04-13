@@ -91,8 +91,6 @@ const CRITICAL_PROTECTED_PREFIXES = [
   'skills/feishu-card/',
   'skills/feishu-doc/',
   'skills/skill-tools/',
-  'skills/clawhub/',
-  'skills/clawhub-batch-undelete/',
   'skills/git-sync/',
   'skills/evolver/',
 ];

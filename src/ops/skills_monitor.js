@@ -9,7 +9,6 @@ const { getSkillsDir, getWorkspaceRoot } = require('../gep/paths');
 
 const IGNORE_LIST = new Set([
     'common',
-    'clawhub',
     'input-validator',
     'proactive-agent',
     'security-audit',

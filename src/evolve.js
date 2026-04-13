@@ -888,43 +888,19 @@ function checkAndAutoUpdate() {
       }
     } catch (_) {}
 
-    // Channel 2: clawhub (legacy, only if available)
-    let clawhubBin = null;
-    const whichCmd = process.platform === 'win32' ? 'where clawhub' : 'which clawhub';
-    const candidates = ['clawhub', path.join(os.homedir(), '.npm-global/bin/clawhub'), '/usr/local/bin/clawhub'];
-    for (const c of candidates) {
-      try {
-        if (c === 'clawhub') {
-          execSync(whichCmd, { stdio: 'ignore', timeout: 3000, windowsHide: true });
-          clawhubBin = 'clawhub';
-          break;
-        }
-        if (fs.existsSync(c)) { clawhubBin = c; break; }
-      } catch (_) {}
-    }
-
-    if (clawhubBin) {
-      const slugs = ['evolver'];
-      // Detect Feishu environment: include wrapper only if feishu-evolver-wrapper is installed
-      const isFeishuEnv = fs.existsSync(path.resolve(REPO_ROOT, '..', 'feishu-evolver-wrapper'))
-        || fs.existsSync(path.resolve(REPO_ROOT, '..', 'feishu-evolver-wrapper-private'))
-        || process.env.FEISHU_EVOLVER_INTERVAL;
-      if (isFeishuEnv) slugs.push('feishu-evolver-wrapper');
-
-      for (const slug of slugs) {
+    // Channel 2: Feishu wrapper auto-bootstrap (only if Feishu env detected)
+    if (process.env.FEISHU_APP_ID || process.env.FEISHU_BOT_NAME) {
+      const wrapperDir = path.resolve(REPO_ROOT, '..', 'feishu-evolver-wrapper');
+      if (!fs.existsSync(wrapperDir)) {
         try {
-          const out = execSync(`${clawhubBin} update ${slug} --force`, {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'pipe'],
-            timeout: 30000,
-            cwd: path.resolve(REPO_ROOT, '..'),
-            windowsHide: true,
+          console.log('[AutoUpdate] Feishu env detected, downloading feishu-evolver-wrapper...');
+          execSync('npx -y degit EvoMap/feishu-evolver-wrapper ' + JSON.stringify(wrapperDir), {
+            encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true,
           });
-          if (out && !out.includes('already up to date') && !out.includes('not installed')) {
-            console.log(`[AutoUpdate] ${slug}: ${out.trim().split('\n').pop()}`);
-            updated = true;
-          }
-        } catch (e) {}
+          console.log('[AutoUpdate] feishu-evolver-wrapper installed to ' + wrapperDir);
+        } catch (e) {
+          console.log('[AutoUpdate] feishu-evolver-wrapper download failed (non-fatal): ' + (e.message || e));
+        }
       }
     }
 
@@ -964,36 +940,37 @@ function executeForceUpdate(forceUpdate) {
     } catch (_) { return '0.0.0'; }
   }
 
-  // Channel 1: ClawHub
+  // Channel 1: GitHub Release (via degit)
   try {
-    var clawhubBin = null;
-    var candidates = ['clawhub', path.join(os.homedir(), '.npm-global/bin/clawhub'), '/usr/local/bin/clawhub'];
-    for (var ci = 0; ci < candidates.length; ci++) {
-      try {
-        if (candidates[ci] === 'clawhub') {
-          execSync(process.platform === 'win32' ? 'where clawhub' : 'which clawhub',
-            { stdio: 'ignore', timeout: 3000, windowsHide: true });
-          clawhubBin = 'clawhub';
-          break;
-        }
-        if (fs.existsSync(candidates[ci])) { clawhubBin = candidates[ci]; break; }
-      } catch (_) {}
-    }
-    if (clawhubBin) {
-      console.log('[ForceUpdate] Channel 1: ClawHub update...');
-      var out = execSync(clawhubBin + ' update evolver --force', {
-        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 60000, cwd: path.resolve(REPO_ROOT, '..'), windowsHide: true,
-      });
-      console.log('[ForceUpdate] ClawHub: ' + (out || '').trim().split('\n').pop());
-      var newVer = getCurrentVersion();
-      if (isAtLeast(newVer, requiredVersion)) {
-        console.log('[ForceUpdate] ClawHub update successful: ' + newVer);
-        return true;
+    console.log('[ForceUpdate] Channel 1: GitHub Release download...');
+    var tmpTarget = path.resolve(REPO_ROOT, '..', '.evolver-update-tmp');
+    try { fs.rmSync(tmpTarget, { recursive: true, force: true }); } catch (_) {}
+    execSync('npx -y degit EvoMap/evolver ' + JSON.stringify(tmpTarget), {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60000, windowsHide: true,
+    });
+    var tmpPkg = JSON.parse(fs.readFileSync(path.join(tmpTarget, 'package.json'), 'utf8'));
+    if (tmpPkg.version && isAtLeast(tmpPkg.version, requiredVersion)) {
+      var entries = fs.readdirSync(REPO_ROOT, { withFileTypes: true });
+      for (var ei = 0; ei < entries.length; ei++) {
+        var eName = entries[ei].name;
+        if (eName === 'node_modules' || eName === 'memory' || eName === '.git' || eName === 'MEMORY.md') continue;
+        try { fs.rmSync(path.join(REPO_ROOT, eName), { recursive: true, force: true }); } catch (_) {}
       }
+      var newEntries = fs.readdirSync(tmpTarget, { withFileTypes: true });
+      for (var ni = 0; ni < newEntries.length; ni++) {
+        var src = path.join(tmpTarget, newEntries[ni].name);
+        var dst = path.join(REPO_ROOT, newEntries[ni].name);
+        fs.cpSync(src, dst, { recursive: true });
+      }
+      try { fs.rmSync(tmpTarget, { recursive: true, force: true }); } catch (_) {}
+      console.log('[ForceUpdate] GitHub Release update successful: ' + tmpPkg.version);
+      return true;
     }
+    try { fs.rmSync(tmpTarget, { recursive: true, force: true }); } catch (_) {}
   } catch (e) {
-    console.warn('[ForceUpdate] ClawHub failed:', e && e.message || e);
+    console.warn('[ForceUpdate] GitHub Release failed:', e && e.message || e);
+    try { fs.rmSync(path.resolve(REPO_ROOT, '..', '.evolver-update-tmp'), { recursive: true, force: true }); } catch (_) {}
   }
 
   // Channel 2: npm
@@ -2429,7 +2406,7 @@ ${sharedKnowledgeContext}
       '',
       'Loop chaining (only if you are running in loop mode): after solidify succeeds, print a sessions_spawn call to start the next loop run with a short delay.',
       'Example:',
-      'sessions_spawn({ task: "exec: node skills/feishu-evolver-wrapper/lifecycle.js ensure", agentId: "main", cleanup: "delete", label: "gep_loop_next" })',
+      'sessions_spawn({ task: "exec: node skills/evolver/index.js evolve", agentId: "main", cleanup: "delete", label: "gep_loop_next" })',
       '',
       'GEP protocol prompt (may be truncated here; prefer the prompt file if provided):',
       clip(prompt, 24000),
