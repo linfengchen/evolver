@@ -492,6 +492,7 @@ function buildHubHeaders() {
   const headers = { 'Content-Type': 'application/json' };
   const secret = getHubNodeSecret();
   if (secret) headers['Authorization'] = 'Bearer ' + secret;
+  headers['x-correlation-id'] = crypto.randomUUID();
   return headers;
 }
 
@@ -681,6 +682,21 @@ function sendHeartbeat() {
       }
       if (data.circle_experience && typeof data.circle_experience === 'object') {
         console.log('[EvolutionCircle] Active circle: ' + (data.circle_experience.circle_id || '?') + ' (' + (data.circle_experience.member_count || 0) + ' members)');
+      }
+      if (data.accountability && typeof data.accountability === 'object') {
+        var ep = data.accountability.error_patterns;
+        if (ep && typeof ep === 'object') {
+          var topPatterns = Array.isArray(ep.top_patterns) ? ep.top_patterns : [];
+          if (topPatterns.length > 0) {
+            var patternSummary = topPatterns
+              .map(function (p) { return (p.fingerprint || '?').slice(0, 12) + ' (' + (p.count || 0) + 'x, ' + (p.escalation || 'info') + ')'; })
+              .join('; ');
+            console.warn('[ErrorPatterns] Recurring rejection patterns detected: ' + patternSummary);
+            if (ep.recommendation) {
+              console.warn('[ErrorPatterns] Recommendation: ' + ep.recommendation);
+            }
+          }
+        }
       }
       if (data.heartbeat_actions && typeof data.heartbeat_actions === 'object') {
         var newActions = Array.isArray(data.heartbeat_actions.actions) ? data.heartbeat_actions.actions : [];

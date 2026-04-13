@@ -31,6 +31,7 @@ class LifecycleManager {
     const headers = { 'Content-Type': 'application/json' };
     const secret = this.nodeSecret;
     if (secret) headers['x-node-secret'] = secret;
+    headers['x-correlation-id'] = crypto.randomUUID();
     return headers;
   }
 

@@ -1121,6 +1121,10 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
               .then(function (res) {
                 if (res && res.ok) {
                   console.log('[AutoPublish] Published bundle (Gene+Capsule) ' + (capsule.asset_id || capsule.id) + ' to Hub.');
+                  var piiW = res.response && res.response.payload && Array.isArray(res.response.payload.pii_warnings) ? res.response.payload.pii_warnings : [];
+                  if (piiW.length > 0) {
+                    console.warn('[AutoPublish] PII detected and redacted by Hub: ' + piiW.join('; '));
+                  }
                 } else {
                   console.log('[AutoPublish] Hub rejected: ' + JSON.stringify(res));
                 }
@@ -1217,7 +1221,13 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         if (apResult && typeof apResult.then === 'function') {
           apResult
             .then(function (res) {
-              if (res && res.ok) console.log('[AntiPatternPublish] Published failed bundle to Hub: ' + apCapsule.id);
+              if (res && res.ok) {
+                console.log('[AntiPatternPublish] Published failed bundle to Hub: ' + apCapsule.id);
+                var apPiiW = res.response && res.response.payload && Array.isArray(res.response.payload.pii_warnings) ? res.response.payload.pii_warnings : [];
+                if (apPiiW.length > 0) {
+                  console.warn('[AntiPatternPublish] PII detected and redacted by Hub: ' + apPiiW.join('; '));
+                }
+              }
               else console.log('[AntiPatternPublish] Hub rejected: ' + JSON.stringify(res));
             })
             .catch(function (err) {
