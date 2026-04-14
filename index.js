@@ -405,6 +405,61 @@ async function main() {
       if (res && res.hubReviewPromise) {
         await res.hubReviewPromise;
       }
+
+      // Post-solidify urgent questions: when solidify fails or produces a
+      // low-quality outcome, generate questions and send them to Hub immediately.
+      if (!dryRun) {
+        try {
+          const { generateUrgentQuestions } = require('./src/gep/questionGenerator');
+          const { fetchTasks } = require('./src/gep/taskReceiver');
+          const urgentOpts = {};
+
+          if (!res || !res.ok) {
+            if (res && res.validation && !res.validation.ok) {
+              urgentOpts.validationFailed = true;
+              var failedStep = res.validation.results && res.validation.results.find(function (r) { return !r.ok; });
+              urgentOpts.validationErrors = failedStep ? (failedStep.err || failedStep.cmd || '') : '';
+            }
+            urgentOpts.geneId = res && res.gene ? res.gene.id : undefined;
+            var evtOutcome = res && res.event && res.event.outcome;
+            if (evtOutcome && typeof evtOutcome.score === 'number' && evtOutcome.score < 0.3) {
+              urgentOpts.lowConfidence = true;
+              urgentOpts.confidenceScore = evtOutcome.score;
+              urgentOpts.intent = res.event.intent;
+            }
+            if (res && res.blast && res.blast.files === 0 && res.blast.lines === 0) {
+              urgentOpts.zeroBlastRadius = true;
+              urgentOpts.hadSignals = true;
+              urgentOpts.signals = res.event && Array.isArray(res.event.signals) ? res.event.signals : [];
+            }
+          } else if (res.event && res.event.outcome && res.event.outcome.score < 0.3) {
+            urgentOpts.lowConfidence = true;
+            urgentOpts.confidenceScore = res.event.outcome.score;
+            urgentOpts.intent = res.event.intent;
+          }
+
+          if (Object.keys(urgentOpts).length > 0) {
+            var urgentQs = generateUrgentQuestions(urgentOpts);
+            if (urgentQs.length > 0) {
+              console.log('[UrgentQ] Generated ' + urgentQs.length + ' urgent question(s) from solidify outcome.');
+              try {
+                var fetchRes = await fetchTasks({ questions: urgentQs });
+                if (fetchRes.questions_created) {
+                  var accepted = fetchRes.questions_created.filter(function (q) { return !q.error; });
+                  if (accepted.length > 0) {
+                    console.log('[UrgentQ] Hub accepted ' + accepted.length + ' urgent question(s) as bounties.');
+                  }
+                }
+              } catch (err) {
+                console.log('[UrgentQ] Send failed (non-fatal): ' + (err && err.message ? err.message : err));
+              }
+            }
+          }
+        } catch (e) {
+          console.log('[UrgentQ] Init failed (non-fatal): ' + (e && e.message ? e.message : e));
+        }
+      }
+
       process.exit(res && res.ok ? 0 : 2);
     } catch (error) {
       console.error('[SOLIDIFY] Error:', error);

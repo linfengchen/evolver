@@ -1868,6 +1868,9 @@ async function run() {
         console.log(`[SearchFirst] Hub hit: asset=${hubHit.asset_id}, score=${hubHit.score}, mode=${hubHit.mode}`);
       } else {
         console.log(`[SearchFirst] No hub match (reason: ${hubHit && hubHit.reason ? hubHit.reason : 'unknown'}). Proceeding with local evolution.`);
+        if (hasProblemSignal && !signals.includes('hub_search_miss_with_problem')) {
+          signals.push('hub_search_miss_with_problem');
+        }
       }
     } catch (e) {
       console.log(`[SearchFirst] Hub search failed (non-fatal): ${e.message}`);

@@ -4,6 +4,12 @@
 //
 // Questions are sent via the A2A fetch payload.questions field. The Hub creates
 // bounties from them, enabling multi-agent collaborative problem solving.
+//
+// Two entry points:
+//   generateQuestions()  -- standard path, runs at cycle start (rate-limited)
+//   generateUrgentQuestions() -- post-solidify path, bypasses cooldown for
+//                                high-priority situations (failed solidify,
+//                                low confidence, validation failures)
 // ---------------------------------------------------------------------------
 
 const fs = require('fs');
@@ -11,8 +17,10 @@ const path = require('path');
 const { getEvolutionDir } = require('./paths');
 
 const QUESTION_STATE_FILE = path.join(getEvolutionDir(), 'question_generator_state.json');
-const MIN_INTERVAL_MS = 3 * 60 * 60 * 1000; // at most once per 3 hours
-const MAX_QUESTIONS_PER_CYCLE = 2;
+const MIN_INTERVAL_MS = 30 * 60 * 1000; // standard path: at most once per 30 minutes
+const URGENT_INTERVAL_MS = 5 * 60 * 1000; // urgent path: at most once per 5 minutes
+const MAX_QUESTIONS_PER_CYCLE = 3;
+const MAX_URGENT_QUESTIONS = 2;
 
 function readState() {
   try {
@@ -20,12 +28,12 @@ function readState() {
       return JSON.parse(fs.readFileSync(QUESTION_STATE_FILE, 'utf8'));
     }
   } catch (_) {}
-  return { lastAskedAt: null, recentQuestions: [] };
+  return { lastAskedAt: null, lastUrgentAt: null, recentQuestions: [] };
 }
 
 function writeState(state) {
   try {
-    const dir = path.dirname(QUESTION_STATE_FILE);
+    var dir = path.dirname(QUESTION_STATE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(QUESTION_STATE_FILE, JSON.stringify(state, null, 2) + '\n');
   } catch (_) {}
@@ -36,7 +44,6 @@ function isDuplicate(question, recentQuestions) {
   for (var i = 0; i < recentQuestions.length; i++) {
     var prev = String(recentQuestions[i] || '').toLowerCase();
     if (prev === qLower) return true;
-    // fuzzy: if >70% overlap by word set
     var qWords = new Set(qLower.split(/\s+/).filter(function(w) { return w.length > 2; }));
     var pWords = new Set(prev.split(/\s+/).filter(function(w) { return w.length > 2; }));
     if (qWords.size === 0 || pWords.size === 0) continue;
@@ -47,35 +54,35 @@ function isDuplicate(question, recentQuestions) {
   return false;
 }
 
-/**
- * Generate proactive questions based on evolution context.
- *
- * @param {object} opts
- * @param {string[]} opts.signals - current cycle signals
- * @param {object[]} opts.recentEvents - recent EvolutionEvent objects
- * @param {string} opts.sessionTranscript - recent session transcript
- * @param {string} opts.memorySnippet - MEMORY.md content
- * @returns {Array<{ question: string, amount: number, signals: string[] }>}
- */
-function generateQuestions(opts) {
-  var o = opts || {};
-  var signals = Array.isArray(o.signals) ? o.signals : [];
-  var recentEvents = Array.isArray(o.recentEvents) ? o.recentEvents : [];
-  var transcript = String(o.sessionTranscript || '');
-  var memory = String(o.memorySnippet || '');
-
-  var state = readState();
-
-  // Rate limit: don't ask too frequently
-  if (state.lastAskedAt) {
-    var elapsed = Date.now() - new Date(state.lastAskedAt).getTime();
-    if (elapsed < MIN_INTERVAL_MS) return [];
+function extractErrorContext(transcript, maxLen) {
+  var lines = transcript.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    if (/error|exception|failed|cannot|not supported|unsupported|not implemented/i.test(lines[i])) {
+      return lines[i].replace(/\s+/g, ' ').trim().slice(0, maxLen || 150);
+    }
   }
+  return '';
+}
 
+function extractRecentGeneIds(recentEvents, count) {
+  var ids = [];
+  var last = recentEvents.slice(-(count || 5));
+  for (var j = 0; j < last.length; j++) {
+    var genes = last[j].genes_used;
+    if (Array.isArray(genes) && genes.length > 0) ids.push(genes[0]);
+  }
+  return Array.from(new Set(ids));
+}
+
+// ---------------------------------------------------------------------------
+// Standard strategies (cycle-start, rate-limited by MIN_INTERVAL_MS)
+// ---------------------------------------------------------------------------
+
+function buildStandardCandidates(signals, recentEvents, transcript, memory) {
   var candidates = [];
   var signalSet = new Set(signals);
 
-  // --- Strategy 1: Recurring errors the agent cannot resolve ---
+  // Strategy 1: Recurring errors the agent cannot resolve
   if (signalSet.has('recurring_error') || signalSet.has('high_failure_ratio')) {
     var errSig = signals.find(function(s) { return s.startsWith('recurring_errsig'); });
     if (errSig) {
@@ -89,16 +96,9 @@ function generateQuestions(opts) {
     }
   }
 
-  // --- Strategy 2: Capability gaps detected from user conversations ---
+  // Strategy 2: Capability gaps detected from user conversations
   if (signalSet.has('capability_gap') || signalSet.has('unsupported_input_type')) {
-    var gapContext = '';
-    var lines = transcript.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      if (/not supported|cannot|unsupported|not implemented/i.test(lines[i])) {
-        gapContext = lines[i].replace(/\s+/g, ' ').trim().slice(0, 150);
-        break;
-      }
-    }
+    var gapContext = extractErrorContext(transcript, 150);
     if (gapContext) {
       candidates.push({
         question: 'Capability gap detected in agent environment: ' + gapContext + ' -- How can this be addressed or what alternative approaches exist?',
@@ -109,17 +109,9 @@ function generateQuestions(opts) {
     }
   }
 
-  // --- Strategy 3: Stagnation / saturation -- seek new directions ---
+  // Strategy 3: Stagnation / saturation -- seek new directions
   if (signalSet.has('evolution_saturation') || signalSet.has('force_steady_state')) {
-    var recentGenes = [];
-    var last5 = recentEvents.slice(-5);
-    for (var j = 0; j < last5.length; j++) {
-      var genes = last5[j].genes_used;
-      if (Array.isArray(genes) && genes.length > 0) {
-        recentGenes.push(genes[0]);
-      }
-    }
-    var uniqueGenes = Array.from(new Set(recentGenes));
+    var uniqueGenes = extractRecentGeneIds(recentEvents, 5);
     candidates.push({
       question: 'Agent evolution has reached saturation after exhausting genes: [' + uniqueGenes.join(', ') + ']. What new evolution directions, automation patterns, or capability genes would be most valuable?',
       amount: 0,
@@ -128,11 +120,11 @@ function generateQuestions(opts) {
     });
   }
 
-  // --- Strategy 4: Consecutive failure streak -- seek external help ---
+  // Strategy 4: Consecutive failure streak -- seek external help
   var failStreak = signals.find(function(s) { return s.startsWith('consecutive_failure_streak_'); });
   if (failStreak) {
     var streakCount = parseInt(failStreak.replace('consecutive_failure_streak_', ''), 10) || 0;
-    if (streakCount >= 4) {
+    if (streakCount >= 3) {
       var failGene = signals.find(function(s) { return s.startsWith('ban_gene:'); });
       var failGeneId = failGene ? failGene.replace('ban_gene:', '') : 'unknown';
       candidates.push({
@@ -144,7 +136,7 @@ function generateQuestions(opts) {
     }
   }
 
-  // --- Strategy 5: User feature requests the agent can amplify ---
+  // Strategy 5: User feature requests the agent can amplify
   if (signalSet.has('user_feature_request') || signals.some(function (s) { return String(s).startsWith('user_feature_request:'); })) {
     var featureLines = transcript.split('\n').filter(function(l) {
       return /\b(add|implement|create|build|i want|i need|please add)\b/i.test(l);
@@ -160,7 +152,7 @@ function generateQuestions(opts) {
     }
   }
 
-  // --- Strategy 6: Performance bottleneck -- seek optimization patterns ---
+  // Strategy 6: Performance bottleneck -- seek optimization patterns
   if (signalSet.has('perf_bottleneck')) {
     var perfLines = transcript.split('\n').filter(function(l) {
       return /\b(slow|timeout|latency|bottleneck|high cpu|high memory)\b/i.test(l);
@@ -176,12 +168,143 @@ function generateQuestions(opts) {
     }
   }
 
+  // Strategy 7: Hub search miss with active problem -- no ecosystem solution exists
+  if (signalSet.has('hub_search_miss_with_problem')) {
+    var problemCtx = extractErrorContext(transcript, 120);
+    var problemSignalList = signals.filter(function(s) {
+      return s === 'log_error' || s === 'test_failure' || s === 'deployment_issue'
+        || s.startsWith('errsig:');
+    }).slice(0, 3);
+    candidates.push({
+      question: 'No matching solution found in ecosystem for active problem (signals: ' + problemSignalList.join(', ') + '). Context: ' + (problemCtx || 'complex multi-signal issue') + ' -- What strategies, patterns, or tools address this class of problem?',
+      amount: 0,
+      signals: ['hub_search_miss', 'ecosystem_gap', 'solution_sought'],
+      priority: 2,
+    });
+  }
+
+  // Strategy 8: Repair loop -- stuck in repair->fail->repair cycle
+  if (signalSet.has('repair_loop_detected') || signalSet.has('force_innovation_after_repair_loop')) {
+    var recentGenes = extractRecentGeneIds(recentEvents, 6);
+    candidates.push({
+      question: 'Agent is stuck in a repair loop (repair->fail->repair cycle) with genes: [' + recentGenes.join(', ') + ']. The underlying issue persists despite multiple attempts. What fundamentally different approach could break this cycle?',
+      amount: 0,
+      signals: ['repair_loop', 'architectural_help_needed'],
+      priority: 3,
+    });
+  }
+
+  // Strategy 9: Plateau -- consecutive non-improving outcomes
+  if (signalSet.has('plateau_pivot_required') || signalSet.has('plateau_pivot_suggested')) {
+    var severity = signalSet.has('plateau_pivot_required') ? 'severe' : 'moderate';
+    candidates.push({
+      question: 'Agent evolution has plateaued (' + severity + ' -- no improvement in recent cycles). Current gene pool and mutation strategies are exhausted. What novel approaches, architectural patterns, or paradigm shifts could restart progress?',
+      amount: 0,
+      signals: ['evolution_plateau', 'pivot_needed'],
+      priority: severity === 'severe' ? 3 : 2,
+    });
+  }
+
+  return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Urgent strategies (post-solidify, rate-limited by URGENT_INTERVAL_MS)
+// These fire when a single cycle produces a bad outcome, without waiting
+// for multi-cycle statistical signals.
+// ---------------------------------------------------------------------------
+
+function buildUrgentCandidates(opts) {
+  var o = opts || {};
+  var candidates = [];
+
+  // U1: Solidify validation failure -- the patch failed automated checks
+  if (o.validationFailed) {
+    var valErrors = String(o.validationErrors || '').slice(0, 200);
+    var geneId = o.geneId || 'unknown';
+    candidates.push({
+      question: 'Evolution cycle produced a patch that failed validation (gene: ' + geneId + '). Errors: ' + valErrors + ' -- What is the correct approach to fix this validation failure?',
+      amount: 0,
+      signals: ['validation_failure', 'solidify_rejected'],
+      priority: 3,
+    });
+  }
+
+  // U2: Low confidence outcome -- solidify scored below threshold
+  if (o.lowConfidence && Number.isFinite(o.confidenceScore)) {
+    var score = Math.round(o.confidenceScore * 100) / 100;
+    var intent = o.intent || 'unknown';
+    candidates.push({
+      question: 'Evolution cycle completed with low confidence (score: ' + score + ', intent: ' + intent + '). The change is uncertain and may not be beneficial. What higher-confidence approaches exist for this type of problem?',
+      amount: 0,
+      signals: ['low_confidence', 'uncertain_outcome'],
+      priority: 2,
+    });
+  }
+
+  // U3: LLM review rejection -- a second-opinion model rejected the change
+  if (o.llmReviewRejected) {
+    var reason = String(o.llmReviewReason || '').slice(0, 200);
+    candidates.push({
+      question: 'Proposed code change was rejected by LLM review: ' + reason + ' -- What alternative implementation approach would pass quality review?',
+      amount: 0,
+      signals: ['llm_review_rejected', 'quality_concern'],
+      priority: 3,
+    });
+  }
+
+  // U4: Zero blast radius after non-trivial attempt
+  if (o.zeroBlastRadius && o.hadSignals) {
+    var attemptedSignals = (Array.isArray(o.signals) ? o.signals : []).slice(0, 5).join(', ');
+    candidates.push({
+      question: 'Evolution cycle targeting signals [' + attemptedSignals + '] produced zero blast radius (no effective changes). The approach was insufficient. What concrete implementation steps would address these signals?',
+      amount: 0,
+      signals: ['zero_blast_radius', 'ineffective_approach'],
+      priority: 2,
+    });
+  }
+
+  // U5: Task completion failure -- claimed a task but couldn't solve it
+  if (o.taskCompletionFailed) {
+    var taskTitle = String(o.taskTitle || '').slice(0, 120);
+    var taskSignals = String(o.taskSignals || '').slice(0, 100);
+    candidates.push({
+      question: 'Failed to complete claimed task: "' + taskTitle + '" (signals: ' + taskSignals + '). The problem exceeds current capabilities. What approaches, tools, or patterns would solve this?',
+      amount: 0,
+      signals: ['task_completion_failed', 'help_needed'],
+      priority: 3,
+    });
+  }
+
+  return candidates;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Standard question generation (cycle start). Rate-limited to MIN_INTERVAL_MS.
+ */
+function generateQuestions(opts) {
+  var o = opts || {};
+  var signals = Array.isArray(o.signals) ? o.signals : [];
+  var recentEvents = Array.isArray(o.recentEvents) ? o.recentEvents : [];
+  var transcript = String(o.sessionTranscript || '');
+  var memory = String(o.memorySnippet || '');
+
+  var state = readState();
+
+  if (state.lastAskedAt) {
+    var elapsed = Date.now() - new Date(state.lastAskedAt).getTime();
+    if (elapsed < MIN_INTERVAL_MS) return [];
+  }
+
+  var candidates = buildStandardCandidates(signals, recentEvents, transcript, memory);
   if (candidates.length === 0) return [];
 
-  // Sort by priority (higher = more urgent)
   candidates.sort(function(a, b) { return b.priority - a.priority; });
 
-  // De-duplicate against recently asked questions
   var recentQTexts = Array.isArray(state.recentQuestions) ? state.recentQuestions : [];
   var filtered = [];
   for (var fi = 0; fi < candidates.length && filtered.length < MAX_QUESTIONS_PER_CYCLE; fi++) {
@@ -192,21 +315,79 @@ function generateQuestions(opts) {
 
   if (filtered.length === 0) return [];
 
-  // Update state
   var newRecentQuestions = recentQTexts.concat(filtered.map(function(q) { return q.question; }));
-  // Keep only last 20 questions in history
-  if (newRecentQuestions.length > 20) {
-    newRecentQuestions = newRecentQuestions.slice(-20);
+  if (newRecentQuestions.length > 30) {
+    newRecentQuestions = newRecentQuestions.slice(-30);
   }
   writeState({
     lastAskedAt: new Date().toISOString(),
+    lastUrgentAt: state.lastUrgentAt || null,
     recentQuestions: newRecentQuestions,
   });
 
-  // Strip internal priority field before returning
   return filtered.map(function(q) {
     return { question: q.question, amount: q.amount, signals: q.signals };
   });
 }
 
-module.exports = { generateQuestions };
+/**
+ * Urgent question generation (post-solidify). Bypasses the standard cooldown
+ * but has its own shorter cooldown (URGENT_INTERVAL_MS). Only fires when
+ * a single cycle produces a clearly bad outcome.
+ *
+ * @param {object} opts
+ * @param {boolean} [opts.validationFailed] - solidify validation failed
+ * @param {string}  [opts.validationErrors] - error details
+ * @param {string}  [opts.geneId] - gene used in the failed cycle
+ * @param {boolean} [opts.lowConfidence] - score below threshold
+ * @param {number}  [opts.confidenceScore] - actual score (0-1)
+ * @param {string}  [opts.intent] - cycle intent
+ * @param {boolean} [opts.llmReviewRejected] - LLM review rejected the change
+ * @param {string}  [opts.llmReviewReason] - rejection reason
+ * @param {boolean} [opts.zeroBlastRadius] - no effective changes
+ * @param {boolean} [opts.hadSignals] - had actionable signals
+ * @param {string[]} [opts.signals] - current signals
+ * @param {boolean} [opts.taskCompletionFailed] - failed to complete a task
+ * @param {string}  [opts.taskTitle] - task title
+ * @param {string}  [opts.taskSignals] - task signals
+ * @returns {Array<{ question: string, amount: number, signals: string[] }>}
+ */
+function generateUrgentQuestions(opts) {
+  var state = readState();
+
+  if (state.lastUrgentAt) {
+    var elapsed = Date.now() - new Date(state.lastUrgentAt).getTime();
+    if (elapsed < URGENT_INTERVAL_MS) return [];
+  }
+
+  var candidates = buildUrgentCandidates(opts);
+  if (candidates.length === 0) return [];
+
+  candidates.sort(function(a, b) { return b.priority - a.priority; });
+
+  var recentQTexts = Array.isArray(state.recentQuestions) ? state.recentQuestions : [];
+  var filtered = [];
+  for (var fi = 0; fi < candidates.length && filtered.length < MAX_URGENT_QUESTIONS; fi++) {
+    if (!isDuplicate(candidates[fi].question, recentQTexts)) {
+      filtered.push(candidates[fi]);
+    }
+  }
+
+  if (filtered.length === 0) return [];
+
+  var newRecentQuestions = recentQTexts.concat(filtered.map(function(q) { return q.question; }));
+  if (newRecentQuestions.length > 30) {
+    newRecentQuestions = newRecentQuestions.slice(-30);
+  }
+  writeState({
+    lastAskedAt: state.lastAskedAt || null,
+    lastUrgentAt: new Date().toISOString(),
+    recentQuestions: newRecentQuestions,
+  });
+
+  return filtered.map(function(q) {
+    return { question: q.question, amount: q.amount, signals: q.signals };
+  });
+}
+
+module.exports = { generateQuestions, generateUrgentQuestions };
