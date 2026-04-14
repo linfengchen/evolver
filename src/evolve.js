@@ -50,9 +50,8 @@ _shield.protectModule(require('./gep/hubVerify'));
 const REPO_ROOT = getRepoRoot();
 
 // Verbose logging helper. Checks EVOLVER_VERBOSE env const (set by --verbose flag in index.js).
-function verbose() {
+function verbose(...args) {
   if (String(process.env.EVOLVER_VERBOSE || '').toLowerCase() !== 'true') return;
-  const args = Array.prototype.slice.call(arguments);
   args.unshift('[Verbose]');
   console.log.apply(console, args);
 }

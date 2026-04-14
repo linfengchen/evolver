@@ -214,6 +214,7 @@ function runGh(args, opts) {
 function getGitDiff(changedFiles, repoRoot) {
   const parts = [];
   for (const f of changedFiles) {
+    const before = parts.length;
     try {
       const result = execSync(
         'git diff HEAD -- "' + f + '"',
@@ -221,7 +222,7 @@ function getGitDiff(changedFiles, repoRoot) {
       );
       if (result && result.trim()) parts.push(result.trim());
     } catch (_) {}
-    if (!parts.length) {
+    if (parts.length === before) {
       try {
         const result = execSync(
           'git diff -- "' + f + '"',

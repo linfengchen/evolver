@@ -88,7 +88,9 @@ function writeScheduleState(state) {
     const tmp = statePath + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', 'utf8');
     fs.renameSync(tmp, statePath);
-  } catch (e) {}
+  } catch (e) {
+    if (process.env.EVOLVER_VERBOSE) console.warn('[idleScheduler] writeScheduleState failed:', e.message);
+  }
 }
 
 // Returns scheduling recommendation with sleep multiplier and action hints.

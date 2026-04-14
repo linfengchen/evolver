@@ -95,7 +95,7 @@ function runHealthCheck() {
             } else {
                  checks.push({ name: 'process_count', ok: true, status: `${pidCount} procs` });
             }
-        } catch(e) {}
+        } catch(e) { /* /proc read non-critical on non-Linux */ }
     }
 
     // Determine Overall Status

@@ -338,7 +338,7 @@ function _extractRegex(corpus, lower, errorHit) {
       var clipped = errLine.replace(/\s+/g, ' ').slice(0, 260);
       signals.push('errsig:' + clipped);
     }
-  } catch (e) {}
+  } catch (e) { /* error-line extraction non-critical */ }
 
   if (lower.includes('memory.md missing')) signals.push('memory_missing');
   if (lower.includes('user.md missing')) signals.push('user_missing');
@@ -369,7 +369,7 @@ function _extractRegex(corpus, lower, errorHit) {
       var topErr = recurringErrors.sort(function (a, b) { return b[1] - a[1]; })[0];
       signals.push('recurring_errsig(' + topErr[1] + 'x):' + topErr[0].slice(0, 150));
     }
-  } catch (e) {}
+  } catch (e) { /* recurring error detection non-critical */ }
 
   // --- Unsupported input type (e.g. GIF, video formats the LLM can't handle) ---
   if (/unsupported mime|unsupported.*type|invalid.*mime/i.test(lower)) {

@@ -80,7 +80,9 @@ class SyncEngine {
         if (result.received > 0) {
           this._lastActivity = Date.now();
           if (typeof this.onInboundReceived === 'function') {
-            try { this.onInboundReceived(result.received); } catch {}
+            try { this.onInboundReceived(result.received); } catch (e) {
+              this.logger.warn?.('[sync] onInboundReceived callback failed:', e.message);
+            }
           }
         }
         await this.inbound.ackDelivered();

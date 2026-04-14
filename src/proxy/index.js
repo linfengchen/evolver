@@ -75,7 +75,9 @@ class EvoMapProxy {
       getHeaders,
       logger: this.logger,
       onInboundReceived: () => {
-        try { this.skillUpdater?.pollAndApply(); } catch {}
+        try { this.skillUpdater?.pollAndApply(); } catch (e) {
+          this.logger?.warn?.('[proxy] skillUpdater.pollAndApply failed:', e.message);
+        }
       },
     });
 

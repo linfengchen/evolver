@@ -16,7 +16,7 @@ const IGNORE_LIST = new Set([
 
 // Load user-defined ignore list
 try {
-    var ignoreFile = path.join(getWorkspaceRoot(), '.skill_monitor_ignore');
+    const ignoreFile = path.join(getWorkspaceRoot(), '.skill_monitor_ignore');
     if (fs.existsSync(ignoreFile)) {
         fs.readFileSync(ignoreFile, 'utf8').split('\n').forEach(function(l) {
             var t = l.trim();
