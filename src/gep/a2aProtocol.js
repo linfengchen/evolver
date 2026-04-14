@@ -512,8 +512,17 @@ function sendHelloToHub() {
     body: JSON.stringify(msg),
     signal: AbortSignal.timeout(require('../config').HELLO_TIMEOUT_MS),
   })
-    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          console.warn('[Hello] Hub returned ' + res.status + ': ' + t);
+          return { ok: false, error: 'http_' + res.status };
+        });
+      }
+      return res.json();
+    })
     .then(function (data) {
+      if (data && data.ok === false) return data;
       const secret = (data && data.payload && data.payload.node_secret)
         || (data && data.node_secret)
         || null;
@@ -563,6 +572,63 @@ function _scheduleNextHeartbeat(delayMs) {
       });
   }, delay);
   if (_heartbeatTimer.unref) _heartbeatTimer.unref();
+}
+
+function _rotateAndRetryHeartbeat(endpoint, body) {
+  return _sendHelloWithRotate().then(function (helloResult) {
+    if (!helloResult.ok) {
+      return { ok: false, error: 'reauth_failed: ' + (helloResult.error || 'unknown') };
+    }
+    return fetch(endpoint, {
+      method: 'POST',
+      headers: buildHubHeaders(),
+      body: body,
+      signal: AbortSignal.timeout(require('../config').HEARTBEAT_TIMEOUT_MS),
+    }).then(function (retryRes) {
+      if (!retryRes.ok) {
+        return retryRes.text().then(function (t) {
+          return { ok: false, error: 'retry_http_' + retryRes.status + ': ' + t };
+        });
+      }
+      console.log('[Heartbeat] Re-auth succeeded, heartbeat recovered.');
+      return retryRes.json();
+    });
+  }).catch(function (err) {
+    return { ok: false, error: 'reauth_error: ' + (err.message || err) };
+  });
+}
+
+function _sendHelloWithRotate() {
+  var hubUrl = getHubUrl();
+  if (!hubUrl) return Promise.resolve({ ok: false, error: 'no_hub_url' });
+  var endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/hello';
+  var nodeId = getNodeId();
+  var agentName = (process.env.EVOLVER_AGENT_NAME || process.env.EVOLVER_MODEL_NAME || '').trim().slice(0, 32) || undefined;
+  var msg = buildHello({ nodeId: nodeId, capabilities: {}, name: agentName });
+  msg.sender_id = nodeId;
+  if (msg.payload) msg.payload.rotate_secret = true;
+  else msg.payload = { rotate_secret: true };
+
+  return fetch(endpoint, {
+    method: 'POST',
+    headers: buildHubHeaders(),
+    body: JSON.stringify(msg),
+    signal: AbortSignal.timeout(require('../config').HELLO_TIMEOUT_MS),
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var secret = (data && data.payload && data.payload.node_secret) || (data && data.node_secret) || null;
+      if (secret && /^[a-f0-9]{64}$/i.test(secret)) {
+        _cachedHubNodeSecret = secret;
+        _cachedHubNodeSecretAt = Date.now();
+        _persistNodeSecret(secret);
+        console.log('[a2aProtocol] Secret rotated and stored.');
+        return { ok: true, response: data };
+      }
+      console.warn('[a2aProtocol] rotate_secret hello did not return a new secret.');
+      return { ok: false, error: 'no_secret_in_response' };
+    })
+    .catch(function (err) { return { ok: false, error: err.message }; });
 }
 
 function sendHeartbeat() {
@@ -629,7 +695,18 @@ function sendHeartbeat() {
     body: body,
     signal: AbortSignal.timeout(require('../config').HEARTBEAT_TIMEOUT_MS),
   })
-    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (res.status === 403 || res.status === 401) {
+        console.warn('[Heartbeat] Auth failed (' + res.status + '). Attempting secret rotation via re-hello...');
+        return _rotateAndRetryHeartbeat(endpoint, body);
+      }
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          return { ok: false, error: 'http_' + res.status + ': ' + t };
+        });
+      }
+      return res.json();
+    })
     .then(function (data) {
       if (data && (data.error === 'rate_limited' || data.status === 'rate_limited')) {
         const retryMs = Number(data.retry_after_ms) || 0;

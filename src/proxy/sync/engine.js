@@ -2,17 +2,19 @@
 
 const { OutboundSync } = require('./outbound');
 const { InboundSync, DEFAULT_POLL_INTERVAL_ACTIVE, DEFAULT_POLL_INTERVAL_IDLE } = require('./inbound');
+const { AuthError } = require('../lifecycle/manager');
 
 const DEFAULT_OUTBOUND_INTERVAL = 5_000;
 const IDLE_THRESHOLD = 5 * 60_000;
 
 class SyncEngine {
-  constructor({ store, hubUrl, getHeaders, logger, onInboundReceived }) {
+  constructor({ store, hubUrl, getHeaders, logger, onInboundReceived, onAuthError }) {
     this.store = store;
     this.hubUrl = hubUrl;
     this.logger = logger || console;
     this.getHeaders = getHeaders;
     this.onInboundReceived = onInboundReceived || null;
+    this.onAuthError = onAuthError || null;
 
     this.outbound = new OutboundSync({ store, hubUrl, getHeaders, logger });
     this.inbound = new InboundSync({ store, hubUrl, getHeaders, logger });
@@ -51,6 +53,15 @@ class SyncEngine {
     return (Date.now() - this._lastActivity) > IDLE_THRESHOLD;
   }
 
+  async _handleAuthError(source) {
+    this.logger.error(`[sync] auth error from ${source}, triggering re-authentication`);
+    if (typeof this.onAuthError === 'function') {
+      try { await this.onAuthError(); } catch (e) {
+        this.logger.error(`[sync] onAuthError callback failed: ${e.message}`);
+      }
+    }
+  }
+
   _scheduleOutbound(delayMs) {
     if (!this._running) return;
     this._outTimer = setTimeout(async () => {
@@ -60,7 +71,11 @@ class SyncEngine {
         const result = await this.outbound.flush();
         if (result.sent > 0) this._lastActivity = Date.now();
       } catch (err) {
-        this.logger.error(`[sync] outbound error: ${err.message}`);
+        if (err instanceof AuthError) {
+          await this._handleAuthError('outbound');
+        } else {
+          this.logger.error(`[sync] outbound error: ${err.message}`);
+        }
       }
       this._outPending = false;
       const nextDelay = this.store.countPending({ direction: 'outbound' }) > 0
@@ -87,7 +102,11 @@ class SyncEngine {
         }
         await this.inbound.ackDelivered();
       } catch (err) {
-        this.logger.error(`[sync] inbound error: ${err.message}`);
+        if (err instanceof AuthError) {
+          await this._handleAuthError('inbound');
+        } else {
+          this.logger.error(`[sync] inbound error: ${err.message}`);
+        }
       }
       const nextDelay = this._isIdle()
         ? DEFAULT_POLL_INTERVAL_IDLE

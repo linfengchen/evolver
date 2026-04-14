@@ -6,6 +6,15 @@ const crypto = require('crypto');
 const DEFAULT_HEARTBEAT_INTERVAL = 360_000;
 const HELLO_TIMEOUT = 15_000;
 const HEARTBEAT_TIMEOUT = 10_000;
+const MAX_REAUTH_ATTEMPTS = 2;
+
+class AuthError extends Error {
+  constructor(message, statusCode) {
+    super(message);
+    this.name = 'AuthError';
+    this.statusCode = statusCode;
+  }
+}
 
 class LifecycleManager {
   constructor({ hubUrl, store, logger, getTaskMeta } = {}) {
@@ -17,6 +26,7 @@ class LifecycleManager {
     this._running = false;
     this._startedAt = null;
     this._consecutiveFailures = 0;
+    this._reauthInProgress = false;
   }
 
   get nodeId() {
@@ -35,11 +45,14 @@ class LifecycleManager {
     return headers;
   }
 
-  async hello() {
+  async hello({ rotateSecret = false } = {}) {
     if (!this.hubUrl) return { ok: false, error: 'no_hub_url' };
 
     const endpoint = `${this.hubUrl}/a2a/hello`;
     const nodeId = this.store.getState('node_id') || `node_${crypto.randomBytes(6).toString('hex')}`;
+
+    const payload = { capabilities: {} };
+    if (rotateSecret) payload.rotate_secret = true;
 
     const body = {
       protocol: 'gep-a2a',
@@ -48,9 +61,7 @@ class LifecycleManager {
       message_id: 'msg_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex'),
       sender_id: nodeId,
       timestamp: new Date().toISOString(),
-      payload: {
-        capabilities: {},
-      },
+      payload,
     };
 
     try {
@@ -62,13 +73,19 @@ class LifecycleManager {
       });
       const data = await res.json();
 
+      if (data?.payload?.status === 'rejected') {
+        this.logger.error(`[lifecycle] hello rejected: ${data.payload.reason || 'unknown'}`);
+        return { ok: false, error: data.payload.reason || 'hello_rejected', response: data };
+      }
+
       const secret = data?.payload?.node_secret || data?.node_secret || null;
       if (secret && /^[a-f0-9]{64}$/i.test(secret)) {
         this.store.setState('node_secret', secret);
+        this.logger.log('[lifecycle] new node_secret stored from hello response');
       }
 
       this.store.setState('node_id', nodeId);
-      this.logger.log(`[lifecycle] hello OK, node_id=${nodeId}`);
+      this.logger.log(`[lifecycle] hello OK, node_id=${nodeId}${rotateSecret ? ' (secret rotated)' : ''}`);
       return { ok: true, nodeId, response: data };
     } catch (err) {
       this.logger.error(`[lifecycle] hello failed: ${err.message}`);
@@ -76,7 +93,41 @@ class LifecycleManager {
     }
   }
 
-  async heartbeat() {
+  /**
+   * Re-authenticate after 403: rotate secret via hello, then verify with a
+   * heartbeat. Returns true if auth is restored, false otherwise.
+   */
+  async reAuthenticate() {
+    if (this._reauthInProgress) return false;
+    this._reauthInProgress = true;
+    try {
+      for (let attempt = 1; attempt <= MAX_REAUTH_ATTEMPTS; attempt++) {
+        this.logger.warn(`[lifecycle] re-auth attempt ${attempt}/${MAX_REAUTH_ATTEMPTS}: rotating secret via hello...`);
+        const helloResult = await this.hello({ rotateSecret: true });
+        if (!helloResult.ok) {
+          this.logger.error(`[lifecycle] re-auth hello failed: ${helloResult.error}`);
+          continue;
+        }
+        const newSecret = helloResult.response?.payload?.node_secret;
+        if (!newSecret) {
+          this.logger.error('[lifecycle] re-auth: hub did not return a new secret (rotate may not have taken effect)');
+          continue;
+        }
+        const hbResult = await this.heartbeat({ _skipReauth: true });
+        if (hbResult.ok) {
+          this.logger.log('[lifecycle] re-auth succeeded: heartbeat confirmed with new secret');
+          return true;
+        }
+        this.logger.warn(`[lifecycle] re-auth attempt ${attempt}: heartbeat still failing after rotate`);
+      }
+      this.logger.error('[lifecycle] re-auth exhausted all attempts');
+      return false;
+    } finally {
+      this._reauthInProgress = false;
+    }
+  }
+
+  async heartbeat({ _skipReauth = false } = {}) {
     if (!this.hubUrl) return { ok: false, error: 'no_hub_url' };
 
     const nodeId = this.nodeId;
@@ -107,6 +158,28 @@ class LifecycleManager {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(HEARTBEAT_TIMEOUT),
       });
+
+      if (res.status === 403 || res.status === 401) {
+        this._consecutiveFailures++;
+        const errText = await res.text().catch(() => '');
+        this.logger.error(`[lifecycle] heartbeat auth failed (${res.status}): ${errText}`);
+        if (!_skipReauth) {
+          const recovered = await this.reAuthenticate();
+          if (recovered) {
+            this._consecutiveFailures = 0;
+            return { ok: true, recovered: true };
+          }
+        }
+        return { ok: false, error: `auth_failed_${res.status}`, statusCode: res.status };
+      }
+
+      if (!res.ok) {
+        this._consecutiveFailures++;
+        const errText = await res.text().catch(() => '');
+        this.logger.error(`[lifecycle] heartbeat HTTP ${res.status}: ${errText}`);
+        return { ok: false, error: `http_${res.status}`, statusCode: res.status };
+      }
+
       const data = await res.json();
 
       this._consecutiveFailures = 0;
@@ -193,4 +266,4 @@ class LifecycleManager {
   }
 }
 
-module.exports = { LifecycleManager, DEFAULT_HEARTBEAT_INTERVAL };
+module.exports = { LifecycleManager, AuthError, DEFAULT_HEARTBEAT_INTERVAL };

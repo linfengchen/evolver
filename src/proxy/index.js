@@ -74,6 +74,7 @@ class EvoMapProxy {
       hubUrl: this.hubUrl,
       getHeaders,
       logger: this.logger,
+      onAuthError: () => this.lifecycle.reAuthenticate(),
       onInboundReceived: () => {
         try { this.skillUpdater?.pollAndApply(); } catch (e) {
           this.logger?.warn?.('[proxy] skillUpdater.pollAndApply failed:', e.message);
@@ -167,6 +168,25 @@ class EvoMapProxy {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30_000),
     });
+
+    if (res.status === 403 || res.status === 401) {
+      const recovered = await this.lifecycle.reAuthenticate();
+      if (recovered) {
+        const retry = await fetch(endpoint, {
+          method: 'POST',
+          headers: this.lifecycle._buildHeaders(),
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!retry.ok) {
+          const text = await retry.text().catch(() => '');
+          throw Object.assign(new Error(`Hub ${retry.status}: ${text}`), { statusCode: retry.status });
+        }
+        return retry.json();
+      }
+      const text = await res.text().catch(() => '');
+      throw Object.assign(new Error(`Hub ${res.status} (re-auth failed): ${text}`), { statusCode: res.status });
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');

@@ -1,6 +1,7 @@
 'use strict';
 
 const { PROXY_PROTOCOL_VERSION } = require('../mailbox/store');
+const { AuthError } = require('../lifecycle/manager');
 
 const MAX_BATCH = 50;
 const MAX_RETRIES = 10;
@@ -38,6 +39,11 @@ class OutboundSync {
         }),
         signal: AbortSignal.timeout(30_000),
       });
+
+      if (res.status === 403 || res.status === 401) {
+        const errText = await res.text().catch(() => 'unknown');
+        throw new AuthError(`Hub ${res.status}: ${errText}`, res.status);
+      }
 
       if (!res.ok) {
         const errText = await res.text().catch(() => 'unknown');
@@ -78,6 +84,7 @@ class OutboundSync {
       this.store.setState('last_sync_at', new Date().toISOString());
       return { sent: pending.length, synced: updates.length, responses: inboundMessages.length };
     } catch (err) {
+      if (err instanceof AuthError) throw err;
       this.logger.error(`[outbound] flush failed: ${err.message}`);
       for (const m of pending) {
         this.store.incrementRetry(m.id, err.message);

@@ -1,6 +1,7 @@
 'use strict';
 
 const { PROXY_PROTOCOL_VERSION } = require('../mailbox/store');
+const { AuthError } = require('../lifecycle/manager');
 
 const DEFAULT_POLL_INTERVAL_ACTIVE = 10_000;
 const DEFAULT_POLL_INTERVAL_IDLE = 60_000;
@@ -27,6 +28,11 @@ class InboundSync {
         body: JSON.stringify({ sender_id: senderId, proxy_protocol_version: PROXY_PROTOCOL_VERSION, cursor, limit }),
         signal: AbortSignal.timeout(35_000),
       });
+
+      if (res.status === 403 || res.status === 401) {
+        const errText = await res.text().catch(() => 'unknown');
+        throw new AuthError(`Hub ${res.status}: ${errText}`, res.status);
+      }
 
       if (!res.ok) {
         const errText = await res.text().catch(() => 'unknown');
@@ -56,6 +62,7 @@ class InboundSync {
 
       return { received: messages.length, cursor: data.next_cursor || cursor };
     } catch (err) {
+      if (err instanceof AuthError) throw err;
       this.logger.error(`[inbound] pull failed: ${err.message}`);
       return { received: 0, error: err.message };
     }
