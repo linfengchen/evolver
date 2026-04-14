@@ -571,28 +571,6 @@ ${buildNarrativeBlock()}
 ${buildPrinciplesBlock()}
 Context [Execution]:
 ${executionContext}
-
-━━━━━━━━━━━━━━━━━━━━━━
-MANDATORY POST-SOLIDIFY STEP (Wrapper Authority -- Cannot Be Skipped)
-━━━━━━━━━━━━━━━━━━━━━━
-
-After solidify, a status summary file MUST exist for this cycle.
-Preferred path: evolver core auto-writes it during solidify.
-The wrapper will handle reporting AFTER git push.
-If core write is unavailable for any reason, create fallback status JSON manually.
-
-Write a JSON file with your status (cross-platform):
-\`\`\`bash
-node -e "var d=${JSON.stringify((process.env.WORKSPACE_DIR || '.').replace(/\\/g, '/'))};require('fs').mkdirSync(d+'/logs',{recursive:true});require('fs').writeFileSync(d+'/logs/status_${cycleId}.json',JSON.stringify({result:'success',en:'Status: [INTENT] ...',zh:'...'},null,2))"
-\`\`\`
-
-Rules:
-- "en" field: English status. "zh" field: Chinese status. Content must match (different language).
-- Add "result" with value success or failed.
-- INTENT must be one of: INNOVATION, REPAIR, OPTIMIZE (or Chinese: 创新, 修复, 优化)
-- Do NOT use generic text like "Step Complete", "Cycle finished", "周期已完成". Describe the actual work.
-- Example:
-  {"result":"success","en":"Status: [INNOVATION] Created auto-scheduler that syncs calendar to HEARTBEAT.md","zh":"状态: [创新] 创建了自动调度器，将日历同步到 HEARTBEAT.md"}
 `.trim();
 
   const maxChars = Number.isFinite(Number(process.env.GEP_PROMPT_MAX_CHARS)) ? Number(process.env.GEP_PROMPT_MAX_CHARS) : 50000;

@@ -41,42 +41,25 @@ function buildMinimalPrompt(overrides) {
   });
 }
 
-describe('buildGepPrompt -- cross-platform status write', () => {
-  it('uses node -e for status file creation (not bash heredoc)', () => {
+describe('buildGepPrompt -- prompt does not contain inline status write', () => {
+  it('does not embed node -e status file command in prompt', () => {
     const prompt = buildMinimalPrompt();
-    assert.ok(prompt.includes('node -e'), 'prompt should contain node -e command');
+    assert.ok(!prompt.includes('mkdirSync'), 'prompt should NOT contain mkdirSync (status write moved to wrapper)');
+    assert.ok(!prompt.includes('writeFileSync'), 'prompt should NOT contain writeFileSync');
+    assert.ok(!prompt.includes('status_'), 'prompt should NOT contain status file references');
+  });
+
+  it('does not contain POST-SOLIDIFY block', () => {
+    const prompt = buildMinimalPrompt();
+    assert.ok(!prompt.includes('POST-SOLIDIFY'), 'prompt should NOT contain POST-SOLIDIFY block');
+    assert.ok(!prompt.includes('Wrapper Authority'), 'prompt should NOT contain Wrapper Authority header');
+  });
+
+  it('does not contain bash heredoc patterns', () => {
+    const prompt = buildMinimalPrompt();
     assert.ok(!prompt.includes('cat >'), 'prompt should NOT contain bash cat > redirect');
     assert.ok(!prompt.includes('STATUSEOF'), 'prompt should NOT contain heredoc delimiter');
     assert.ok(!prompt.includes('<< '), 'prompt should NOT contain heredoc operator');
-  });
-
-  it('labels the status write as cross-platform', () => {
-    const prompt = buildMinimalPrompt();
-    assert.ok(prompt.includes('cross-platform'), 'prompt should mention cross-platform');
-  });
-
-  it('uses mkdirSync with recursive:true for logs directory', () => {
-    const prompt = buildMinimalPrompt();
-    assert.ok(prompt.includes('mkdirSync'), 'prompt should use mkdirSync');
-    assert.ok(prompt.includes('recursive:true') || prompt.includes('recursive: true'),
-      'prompt should use recursive mkdir');
-  });
-
-  it('uses writeFileSync for status JSON', () => {
-    const prompt = buildMinimalPrompt();
-    assert.ok(prompt.includes('writeFileSync'), 'prompt should use writeFileSync');
-  });
-
-  it('includes cycle ID in status filename', () => {
-    const prompt = buildMinimalPrompt({ cycleId: '0042' });
-    assert.ok(prompt.includes('status_0042'), 'prompt should include cycle ID in filename');
-  });
-
-  it('escapes backslash paths for Windows compatibility', () => {
-    process.env.WORKSPACE_DIR = 'D:\\Projects\\evolver';
-    const prompt = buildMinimalPrompt();
-    assert.ok(!prompt.includes('D:\\Projects\\evolver/logs') || prompt.includes('D:/Projects/evolver/logs'),
-      'backslash paths should be normalized to forward slashes in the node -e command');
   });
 });
 

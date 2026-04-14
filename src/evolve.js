@@ -1237,7 +1237,7 @@ async function run() {
   // 2. Detect Workspace State & Local Overrides
   // Logic: Default to generic reporting (message)
   let fileList = '';
-  const skillsDir = path.join(REPO_ROOT, 'skills');
+  const skillsDir = path.join(getWorkspaceRoot(), 'skills');
 
   // Default Reporting: Use generic `message` tool or `process.env.EVOLVE_REPORT_CMD` if set.
   // This removes the hardcoded dependency on 'feishu-card' from the core logic.
@@ -2189,6 +2189,7 @@ async function run() {
         commitment_deadline: activeTask ? (activeTask._commitment_deadline || null) : null,
         applied_lessons: hubLessons.map(function(l) { return l.lesson_id; }).filter(Boolean),
         hub_lessons: hubLessons,
+        cycleId: cycleNum,
       };
     writeStateForSolidify(prevState);
 
@@ -2345,6 +2346,7 @@ ${sharedKnowledgeContext}
         strategyPolicy,
         failedCapsules: recentFailedCapsules,
         hubLessons,
+        cycleId: cycleNum,
       });
 
   // Optional: emit a compact thought process block for wrappers (noise-controlled).
