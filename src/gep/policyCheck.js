@@ -297,8 +297,8 @@ function checkConstraints({ gene, blast, blastRadiusEstimate, repoRoot }) {
   for (const f of blast.all_changed_files || blast.changed_files || []) {
     if (isCriticalProtectedPath(f)) {
       const norm = normalizeRelPath(f);
-      if (allowSelfModify && norm.startsWith('skills/evolver/') && gene && gene.category === 'repair') {
-        warnings.push('self_modify_evolver_repair: ' + norm + ' (EVOLVE_ALLOW_SELF_MODIFY=true)');
+      if (allowSelfModify && norm.startsWith('skills/evolver/') && gene && (gene.category === 'repair' || gene.category === 'optimize')) {
+        warnings.push('self_modify_evolver_' + gene.category + ': ' + norm + ' (EVOLVE_ALLOW_SELF_MODIFY=true)');
       } else {
         violations.push('critical_path_modified: ' + norm);
       }

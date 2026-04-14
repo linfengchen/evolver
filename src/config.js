@@ -70,6 +70,16 @@ const CLEANUP_MIN_KEEP = envInt('EVOLVER_CLEANUP_MIN_KEEP', 10);
 const CLEANUP_MAX_FILES = envInt('EVOLVER_CLEANUP_MAX_FILES', 10);
 const LOCK_MAX_AGE_MS = envInt('EVOLVER_LOCK_MAX_AGE_MS', 10 * 60 * 1000);
 
+// --- Self-PR (auto-contribute mutations back to public repo) ---
+
+const SELF_PR_MIN_SCORE = envFloat('EVOLVER_SELF_PR_MIN_SCORE', 0.85);
+const SELF_PR_MIN_STREAK = envInt('EVOLVER_SELF_PR_MIN_STREAK', 3);
+const SELF_PR_MAX_FILES = envInt('EVOLVER_SELF_PR_MAX_FILES', 3);
+const SELF_PR_MAX_LINES = envInt('EVOLVER_SELF_PR_MAX_LINES', 100);
+const SELF_PR_COOLDOWN_MS = envInt('EVOLVER_SELF_PR_COOLDOWN_MS', 24 * 60 * 60 * 1000);
+const SELF_PR_REPO = envStr('EVOLVER_SELF_PR_REPO', 'EvoMap/evolver');
+const SELF_PR_TIMEOUT_MS = envInt('EVOLVER_SELF_PR_TIMEOUT_MS', 30000);
+
 // --- Leak Check ---
 
 const LEAK_CHECK_MODE = envStr('EVOLVER_LEAK_CHECK', 'warn');
@@ -116,6 +126,14 @@ module.exports = {
   CLEANUP_MIN_KEEP,
   CLEANUP_MAX_FILES,
   LOCK_MAX_AGE_MS,
+  // Self-PR
+  SELF_PR_MIN_SCORE,
+  SELF_PR_MIN_STREAK,
+  SELF_PR_MAX_FILES,
+  SELF_PR_MAX_LINES,
+  SELF_PR_COOLDOWN_MS,
+  SELF_PR_REPO,
+  SELF_PR_TIMEOUT_MS,
   // Security
   LEAK_CHECK_MODE,
   // Helpers

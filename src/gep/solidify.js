@@ -1406,7 +1406,35 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
       console.log('[HubReview] Error (non-fatal): ' + e.message);
     }
   }
-  return { ok: success, event, capsule, gene: geneUsed, constraintCheck, validation, validationReport, blast, publishResult, antiPatternPublishResult, taskCompleteResult, hubReviewResult, hubReviewPromise };
+  // --- Self-PR: auto-contribute high-confidence mutations to public repo ---
+  let selfPRResult = null;
+  if (!dryRun && success && capsule) {
+    try {
+      const { maybeCreatePR } = require('./selfPR');
+      const selfPRPromise = maybeCreatePR({
+        capsule: capsule,
+        event: event,
+        mutation: mutation,
+        gene: geneUsed,
+        blastRadius: blast,
+      });
+      if (selfPRPromise && typeof selfPRPromise.then === 'function') {
+        selfPRPromise
+          .then(function (r) {
+            selfPRResult = r;
+            if (r && r.ok) {
+              console.log('[SelfPR] Contributed mutation to public repo: ' + r.pr_url);
+            }
+          })
+          .catch(function (err) {
+            console.log('[SelfPR] Error (non-fatal): ' + (err && err.message ? err.message : err));
+          });
+      }
+    } catch (e) {
+      console.log('[SelfPR] Error (non-fatal): ' + (e && e.message ? e.message : e));
+    }
+  }
+  return { ok: success, event, capsule, gene: geneUsed, constraintCheck, validation, validationReport, blast, publishResult, antiPatternPublishResult, taskCompleteResult, hubReviewResult, hubReviewPromise, selfPRResult };
 }
 
 module.exports = {
