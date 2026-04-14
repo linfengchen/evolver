@@ -20,10 +20,11 @@ class InboundSync {
     const endpoint = `${this.hubUrl}/a2a/mailbox/inbound`;
 
     try {
+      const senderId = this.store.getState('node_id');
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ proxy_protocol_version: PROXY_PROTOCOL_VERSION, cursor, limit }),
+        body: JSON.stringify({ sender_id: senderId, proxy_protocol_version: PROXY_PROTOCOL_VERSION, cursor, limit }),
         signal: AbortSignal.timeout(35_000),
       });
 
@@ -73,10 +74,11 @@ class InboundSync {
     const endpoint = `${this.hubUrl}/a2a/mailbox/ack`;
 
     try {
+      const senderId = this.store.getState('node_id');
       await fetch(endpoint, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({ message_ids: delivered.map(m => m.id) }),
+        body: JSON.stringify({ sender_id: senderId, message_ids: delivered.map(m => m.id) }),
         signal: AbortSignal.timeout(10_000),
       });
       return { acked: delivered.length };

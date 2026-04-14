@@ -20,6 +20,7 @@ class EvoMapProxy {
     this.dataDir = opts.dataDir || opts.dbPath || DEFAULT_DATA_DIR;
     this.port = opts.port;
     this.logger = opts.logger || console;
+    this._skillPath = opts.skillPath || null;
 
     this.store = null;
     this.server = null;
@@ -51,7 +52,7 @@ class EvoMapProxy {
 
     this.skillUpdater = new SkillUpdater({
       store: this.store,
-      skillPath: opts.skillPath || null,
+      skillPath: this._skillPath,
       logger: this.logger,
     });
 

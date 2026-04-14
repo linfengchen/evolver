@@ -186,9 +186,11 @@ async function main() {
             registerMailboxTransport();
             process.env.A2A_TRANSPORT = 'mailbox';
           } else {
-            const { startHeartbeat, startEventStream } = require('./src/gep/a2aProtocol');
-            startHeartbeat();
-            startEventStream();
+            const a2a = require('./src/gep/a2aProtocol');
+            try { a2a.startHeartbeat(); }
+            catch (hbErr) { console.warn('[Heartbeat] startHeartbeat failed: ' + (hbErr && hbErr.message || hbErr)); }
+            try { a2a.startEventStream(); }
+            catch (ssErr) { console.warn('[SSE] startEventStream failed: ' + (ssErr && ssErr.message || ssErr)); }
           }
         } catch (e) {
           console.warn('[Heartbeat] Failed to start: ' + (e.message || e));
@@ -279,9 +281,11 @@ async function main() {
             if (cycleCount >= maxCyclesPerProcess || memMb > maxRssMb) {
               console.log(`[Daemon] Restarting self (cycles=${cycleCount}, rssMb=${memMb.toFixed(0)})`);
               try {
+                const { getEvolverLogPath } = require('./src/gep/paths');
+                const logFd = fs.openSync(getEvolverLogPath(), 'a');
                 const spawnOpts = {
                   detached: true,
-                  stdio: 'ignore',
+                  stdio: ['ignore', logFd, logFd],
                   env: process.env,
                   windowsHide: true,
                 };

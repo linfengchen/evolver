@@ -1,18 +1,21 @@
 const path = require('path');
 const fs = require('fs');
 
+let _cachedRepoRoot = null;
+
 function getRepoRoot() {
+  if (_cachedRepoRoot) return _cachedRepoRoot;
+
   if (process.env.EVOLVER_REPO_ROOT) {
-    return process.env.EVOLVER_REPO_ROOT;
+    _cachedRepoRoot = process.env.EVOLVER_REPO_ROOT;
+    return _cachedRepoRoot;
   }
 
   const ownDir = path.resolve(__dirname, '..', '..');
 
-  // Safety: check evolver's own directory first to prevent operating on a
-  // parent repo that happens to contain .git (which could cause data loss
-  // when git reset --hard runs in the wrong scope).
   if (fs.existsSync(path.join(ownDir, '.git'))) {
-    return ownDir;
+    _cachedRepoRoot = ownDir;
+    return _cachedRepoRoot;
   }
 
   let dir = path.dirname(ownDir);
@@ -20,19 +23,22 @@ function getRepoRoot() {
     if (fs.existsSync(path.join(dir, '.git'))) {
       if (process.env.EVOLVER_USE_PARENT_GIT === 'true') {
         console.warn('[evolver] Using parent git repository at:', dir);
-        return dir;
+        _cachedRepoRoot = dir;
+        return _cachedRepoRoot;
       }
       console.warn(
         '[evolver] Detected .git in parent directory', dir,
         '-- ignoring. Set EVOLVER_USE_PARENT_GIT=true to override,',
         'or EVOLVER_REPO_ROOT to specify the target directory explicitly.'
       );
-      return ownDir;
+      _cachedRepoRoot = ownDir;
+      return _cachedRepoRoot;
     }
     dir = path.dirname(dir);
   }
 
-  return ownDir;
+  _cachedRepoRoot = ownDir;
+  return _cachedRepoRoot;
 }
 
 function getWorkspaceRoot() {
@@ -46,9 +52,6 @@ function getWorkspaceRoot() {
     return workspaceDir;
   }
 
-  // Standalone / Cursor / non-OpenClaw: use the repo root itself as workspace.
-  // The old 4-level-up fallback assumed OpenClaw's skill directory layout
-  // (/workspace/skills/evolver/) which resolves incorrectly in other environments.
   return repoRoot;
 }
 
@@ -64,15 +67,9 @@ function getMemoryDir() {
   return process.env.MEMORY_DIR || path.join(getWorkspaceRoot(), 'memory');
 }
 
-// --- Session Scope Isolation ---
-// When EVOLVER_SESSION_SCOPE is set (e.g., to a Discord channel ID or project name),
-// evolution state, memory graph, and assets are isolated to a per-scope subdirectory.
-// This prevents cross-channel/cross-project memory contamination.
-// When NOT set, everything works as before (global scope, backward compatible).
 function getSessionScope() {
   const raw = String(process.env.EVOLVER_SESSION_SCOPE || '').trim();
   if (!raw) return null;
-  // Sanitize: only allow alphanumeric, dash, underscore, dot (prevent path traversal).
   const safe = raw.replace(/[^a-zA-Z0-9_\-\.]/g, '_').slice(0, 128);
   if (!safe || /^\.{1,2}$/.test(safe) || /\.\./.test(safe)) return null;
   return safe;
@@ -130,4 +127,3 @@ module.exports = {
   getEvolutionPrinciplesPath,
   getReflectionLogPath,
 };
-

@@ -20,10 +20,12 @@ class OutboundSync {
     const endpoint = `${this.hubUrl}/a2a/mailbox/outbound`;
 
     try {
+      const senderId = this.store.getState('node_id');
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: this.getHeaders(),
         body: JSON.stringify({
+          sender_id: senderId,
           proxy_protocol_version: PROXY_PROTOCOL_VERSION,
           messages: pending.map(m => ({
             id: m.id,
