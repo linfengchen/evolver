@@ -267,6 +267,7 @@ function buildGepPrompt({
   failedCapsules,
   hubLessons,
   strategyPolicy,
+  initialUserPrompt,
 }) {
   const parentValue = parentEventId ? `"${parentEventId}"` : 'null';
   const selectedGeneId = selectedGene && selectedGene.id ? selectedGene.id : 'gene_<name>';
@@ -569,7 +570,7 @@ ${buildAntiPatternZone(failedCapsules, signals)}${buildLessonsBlock(hubLessons, 
 ${historyBlock}
 ${buildNarrativeBlock()}
 ${buildPrinciplesBlock()}
-Context [Execution]:
+${initialUserPrompt ? 'Context [Initial User Prompt]:\n' + initialUserPrompt + '\n' : ''}Context [Execution]:
 ${executionContext}
 `.trim();
 

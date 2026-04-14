@@ -86,6 +86,92 @@ function shouldSkipHubCalls(signals) {
   return true;
 }
 
+function readFileHead(filePath, maxBytes) {
+  if (maxBytes === undefined) maxBytes = 8192;
+  try {
+    if (!fs.existsSync(filePath)) return '';
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+    fs.closeSync(fd);
+    return buffer.slice(0, bytesRead).toString('utf8');
+  } catch (e) {
+    return '';
+  }
+}
+
+function extractFirstUserMessage(content) {
+  if (!content) return null;
+  const lines = content.split('\n');
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try {
+      const data = JSON.parse(line);
+      const msg = data.message || data;
+      if (msg.role === 'user' || msg.role === 'USER') {
+        const msgContent = msg.content;
+        if (Array.isArray(msgContent)) {
+          const textParts = msgContent.filter(function(c) { return c.type === 'text'; }).map(function(c) { return c.text; }).join('');
+          return textParts.trim();
+        } else if (typeof msgContent === 'string') {
+          return msgContent.trim();
+        }
+      }
+    } catch (_) {
+      // Not JSON, skip
+    }
+  }
+  return null;
+}
+
+function getCurrentSessionInitialPrompt() {
+  function getCursorPrompt() {
+    if (!CURSOR_TRANSCRIPTS_DIR) return null;
+    try {
+      const files = collectTranscriptFiles(CURSOR_TRANSCRIPTS_DIR, 3);
+      if (!files || files.length === 0) return null;
+      files.sort(function(a, b) { return b.time - a.time; });
+      const headContent = readFileHead(files[0].path, 16384);
+      return extractFirstUserMessage(headContent);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getOpenClawPrompt() {
+    try {
+      if (!fs.existsSync(AGENT_SESSIONS_DIR)) return null;
+      const sessions = fs.readdirSync(AGENT_SESSIONS_DIR)
+        .filter(function(f) { return f.endsWith('.jsonl'); })
+        .map(function(f) {
+          return {
+            path: path.join(AGENT_SESSIONS_DIR, f),
+            time: fs.statSync(path.join(AGENT_SESSIONS_DIR, f)).mtime.getTime(),
+          };
+        })
+        .sort(function(a, b) { return b.time - a.time; });
+      if (!sessions || sessions.length === 0) return null;
+      const headContent = readFileHead(sessions[0].path, 16384);
+      return extractFirstUserMessage(headContent);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  if (SESSION_SOURCE === 'cursor') return getCursorPrompt();
+  if (SESSION_SOURCE === 'openclaw') return getOpenClawPrompt();
+  if (SESSION_SOURCE === 'merge') return getOpenClawPrompt() || getCursorPrompt();
+
+  // 'auto': detect available sources
+  const hasOpenClaw = fs.existsSync(AGENT_SESSIONS_DIR);
+  const hasCursor = !!(CURSOR_TRANSCRIPTS_DIR || process.env.CURSOR_TRACE_DIR || process.env.CURSOR_BACKGROUND_TRANSCRIPTS_DIR);
+
+  if (hasOpenClaw && hasCursor) return getOpenClawPrompt() || getCursorPrompt();
+  if (hasOpenClaw) return getOpenClawPrompt();
+  if (hasCursor) return getCursorPrompt();
+  return null;
+}
+
 // Load environment variables from repo root
 try {
   require('dotenv').config({ path: path.join(REPO_ROOT, '.env'), quiet: true });
@@ -1233,6 +1319,7 @@ async function run() {
 
   const cycleNum = getNextCycleId();
   const cycleId = `Cycle #${cycleNum}`;
+  const initialUserPrompt = getCurrentSessionInitialPrompt();
 
   // 2. Detect Workspace State & Local Overrides
   // Logic: Default to generic reporting (message)
@@ -2190,6 +2277,7 @@ async function run() {
         applied_lessons: hubLessons.map(function(l) { return l.lesson_id; }).filter(Boolean),
         hub_lessons: hubLessons,
         cycleId: cycleNum,
+        initial_user_prompt: initialUserPrompt,
       };
     writeStateForSolidify(prevState);
 
@@ -2255,6 +2343,9 @@ async function run() {
   })();
 
   const context = `
+Initial User Prompt (Original Intent):
+${initialUserPrompt ? '```\n' + initialUserPrompt + '\n```' : '(not available)'}
+
 Runtime state:
 - System health: ${healthReport}
 - Agent state: ${moodStatus}
@@ -2347,6 +2438,7 @@ ${sharedKnowledgeContext}
         failedCapsules: recentFailedCapsules,
         hubLessons,
         cycleId: cycleNum,
+        initialUserPrompt,
       });
 
   // Optional: emit a compact thought process block for wrappers (noise-controlled).

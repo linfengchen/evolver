@@ -37,6 +37,7 @@ function buildMinimalPrompt(overrides) {
     failedCapsules: [],
     hubLessons: [],
     strategyPolicy: null,
+    initialUserPrompt: null,
     ...overrides,
   });
 }
