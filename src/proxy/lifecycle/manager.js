@@ -45,10 +45,12 @@ class LifecycleManager {
       protocol: 'gep-a2a',
       protocol_version: '1.0.0',
       message_type: 'hello',
+      message_id: 'msg_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex'),
       sender_id: nodeId,
-      node_id: nodeId,
-      capabilities: {},
       timestamp: new Date().toISOString(),
+      payload: {
+        capabilities: {},
+      },
     };
 
     try {
@@ -84,18 +86,17 @@ class LifecycleManager {
     }
 
     const endpoint = `${this.hubUrl}/a2a/heartbeat`;
+    const taskMeta = typeof this.getTaskMeta === 'function' ? this.getTaskMeta() : {};
     const body = {
       node_id: this.nodeId,
       sender_id: this.nodeId,
-      version: '1.0.0',
-      uptime_ms: this._startedAt ? Date.now() - this._startedAt : 0,
-      timestamp: new Date().toISOString(),
+      evolver_version: PROXY_PROTOCOL_VERSION,
       meta: {
         proxy_version: PROXY_PROTOCOL_VERSION,
         proxy_protocol_version: PROXY_PROTOCOL_VERSION,
         outbound_pending: this.store.countPending({ direction: 'outbound' }),
         inbound_pending: this.store.countPending({ direction: 'inbound' }),
-        ...(typeof this.getTaskMeta === 'function' ? this.getTaskMeta() : {}),
+        ...taskMeta,
       },
     };
 

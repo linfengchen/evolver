@@ -178,7 +178,9 @@ class EvoMapProxy {
 
   async _getHubMailboxStatus() {
     if (!this.hubUrl) return { error: 'Hub not configured' };
-    const endpoint = `${this.hubUrl}/a2a/mailbox/status`;
+    const nodeId = this.lifecycle.nodeId;
+    if (!nodeId) return { error: 'No node_id yet' };
+    const endpoint = `${this.hubUrl}/a2a/mailbox/status?node_id=${encodeURIComponent(nodeId)}`;
     try {
       const res = await fetch(endpoint, {
         method: 'GET',

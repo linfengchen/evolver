@@ -574,18 +574,18 @@ function sendHeartbeat() {
   const bodyObj = {
     node_id: nodeId,
     sender_id: nodeId,
-    version: PROTOCOL_VERSION,
-    uptime_ms: _heartbeatStartedAt ? Date.now() - _heartbeatStartedAt : 0,
-    timestamp: new Date().toISOString(),
   };
 
   const meta = {};
 
   if (process.env.WORKER_ENABLED === '1') {
     const domains = (process.env.WORKER_DOMAINS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    bodyObj.worker_enabled = true;
+    bodyObj.worker_domains = domains;
+    bodyObj.max_load = Math.max(1, Number(process.env.WORKER_MAX_LOAD) || 5);
     meta.worker_enabled = true;
     meta.worker_domains = domains;
-    meta.max_load = Math.max(1, Number(process.env.WORKER_MAX_LOAD) || 5);
+    meta.max_load = bodyObj.max_load;
   }
 
   const modelTier = (process.env.EVOLVER_MODEL_TIER || '').trim();
@@ -601,6 +601,8 @@ function sendHeartbeat() {
     try {
       const fp = captureEnvFingerprint();
       if (fp && fp.evolver_version) {
+        bodyObj.env_fingerprint = fp;
+        bodyObj.evolver_version = fp.evolver_version;
         meta.env_fingerprint = fp;
         _heartbeatFpSent = true;
       }
