@@ -30,7 +30,7 @@ class LifecycleManager {
   _buildHeaders() {
     const headers = { 'Content-Type': 'application/json' };
     const secret = this.nodeSecret;
-    if (secret) headers['x-node-secret'] = secret;
+    if (secret) headers['Authorization'] = 'Bearer ' + secret;
     headers['x-correlation-id'] = crypto.randomUUID();
     return headers;
   }
