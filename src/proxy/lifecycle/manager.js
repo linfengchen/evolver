@@ -8,6 +8,22 @@ const HELLO_TIMEOUT = 15_000;
 const HEARTBEAT_TIMEOUT = 10_000;
 const MAX_REAUTH_ATTEMPTS = 2;
 
+let _cachedFingerprint = null;
+function _getEnvFingerprint() {
+  if (_cachedFingerprint) return _cachedFingerprint;
+  try {
+    const { captureEnvFingerprint } = require('../../gep/envFingerprint');
+    _cachedFingerprint = captureEnvFingerprint();
+  } catch {
+    _cachedFingerprint = {
+      platform: process.platform,
+      arch: process.arch,
+      node_version: process.version,
+    };
+  }
+  return _cachedFingerprint;
+}
+
 class AuthError extends Error {
   constructor(message, statusCode) {
     super(message);
@@ -54,6 +70,8 @@ class LifecycleManager {
     const payload = { capabilities: {} };
     if (rotateSecret) payload.rotate_secret = true;
 
+    const fp = _getEnvFingerprint();
+
     const body = {
       protocol: 'gep-a2a',
       protocol_version: '1.0.0',
@@ -62,6 +80,7 @@ class LifecycleManager {
       sender_id: nodeId,
       timestamp: new Date().toISOString(),
       payload,
+      env_fingerprint: fp,
     };
 
     try {
@@ -138,10 +157,12 @@ class LifecycleManager {
 
     const endpoint = `${this.hubUrl}/a2a/heartbeat`;
     const taskMeta = typeof this.getTaskMeta === 'function' ? this.getTaskMeta() : {};
+    const fp = _getEnvFingerprint();
     const body = {
       node_id: this.nodeId,
       sender_id: this.nodeId,
-      evolver_version: PROXY_PROTOCOL_VERSION,
+      evolver_version: fp.evolver_version || PROXY_PROTOCOL_VERSION,
+      env_fingerprint: fp,
       meta: {
         proxy_version: PROXY_PROTOCOL_VERSION,
         proxy_protocol_version: PROXY_PROTOCOL_VERSION,
