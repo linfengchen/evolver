@@ -328,8 +328,29 @@ function getContributorsSinceLastRelease() {
   }
 }
 
+function ensurePrePublishChecks(dryRun) {
+  if (dryRun) return;
+  if (String(process.env.SKIP_PRE_PUBLISH_CHECK || '').toLowerCase() === 'true') {
+    process.stdout.write('[pre-publish] skipped via SKIP_PRE_PUBLISH_CHECK=true\n');
+    return;
+  }
+  const scriptPath = path.resolve(__dirname, 'pre_publish_check.js');
+  if (!fs.existsSync(scriptPath)) {
+    throw new Error('pre_publish_check.js not found. Cannot publish without verification gate.');
+  }
+  const envVars = { ...process.env };
+  if (process.env.SKIP_TESTS) envVars.SKIP_TESTS = process.env.SKIP_TESTS;
+  try {
+    execSync(`node "${scriptPath}"`, { cwd: path.resolve(__dirname, '..'), stdio: 'inherit', env: envVars });
+  } catch (e) {
+    throw new Error('Pre-publish checks failed. Fix the issues above before publishing.');
+  }
+}
+
 function main() {
   const dryRun = String(process.env.DRY_RUN || '').toLowerCase() === 'true';
+
+  ensurePrePublishChecks(dryRun);
 
   const sourceBranch = process.env.SOURCE_BRANCH || 'main';
   const publicRemote = process.env.PUBLIC_REMOTE || 'public';
