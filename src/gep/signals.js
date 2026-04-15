@@ -17,6 +17,9 @@ var OPPORTUNITY_SIGNALS = [
   'openclaw_self_healed',
   'empty_cycle_loop_detected',
   'explore_opportunity',
+  'hub_search_miss_with_problem',
+  'plateau_pivot_required',
+  'plateau_pivot_suggested',
 ];
 
 function hasOpportunitySignal(signals) {
@@ -623,6 +626,23 @@ function extractSignals({ recentSessionTranscript, todayLog, memorySnippet, user
   if (history.recentFailureRatio >= 0.75) {
     signals.push('high_failure_ratio');
     signals.push('force_innovation_after_repair_loop');
+  }
+
+  // Plateau detection: recent scores trending down or stagnant.
+  // Uses score data from recentEvents to detect diminishing returns.
+  if (Array.isArray(recentEvents) && recentEvents.length >= 4) {
+    var recentScores = recentEvents.slice(-6).map(function (e) {
+      return e.outcome && typeof e.outcome.score === 'number' ? e.outcome.score : -1;
+    }).filter(function (s) { return s >= 0; });
+    if (recentScores.length >= 3) {
+      var avgScore = recentScores.reduce(function (a, b) { return a + b; }, 0) / recentScores.length;
+      var improving = recentScores.length >= 2 && recentScores[recentScores.length - 1] > recentScores[recentScores.length - 2] + 0.05;
+      if (avgScore < 0.35 && !improving) {
+        signals.push('plateau_pivot_required');
+      } else if (avgScore < 0.55 && !improving && history.consecutiveRepairCount >= 2) {
+        signals.push('plateau_pivot_suggested');
+      }
+    }
   }
 
   // If no signals at all, add a default innovation signal

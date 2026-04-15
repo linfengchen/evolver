@@ -432,6 +432,19 @@ async function main() {
               urgentOpts.hadSignals = true;
               urgentOpts.signals = res.event && Array.isArray(res.event.signals) ? res.event.signals : [];
             }
+            if (res && res.constraintCheck && Array.isArray(res.constraintCheck.violations)) {
+              var llmRejectV = res.constraintCheck.violations.find(function (v) { return String(v).startsWith('llm_review_rejected'); });
+              if (llmRejectV) {
+                urgentOpts.llmReviewRejected = true;
+                urgentOpts.llmReviewReason = String(llmRejectV).replace('llm_review_rejected: ', '');
+              }
+            }
+            var lr = readJsonSafe(path.join(require('./src/gep/paths').getEvolutionDir(), 'evolution_solidify_state.json'));
+            if (lr && lr.last_run && lr.last_run.active_task_id) {
+              urgentOpts.taskCompletionFailed = true;
+              urgentOpts.taskTitle = lr.last_run.active_task_title || '';
+              urgentOpts.taskSignals = Array.isArray(lr.last_run.task_signals) ? lr.last_run.task_signals.join(', ') : '';
+            }
           } else if (res.event && res.event.outcome && res.event.outcome.score < 0.3) {
             urgentOpts.lowConfidence = true;
             urgentOpts.confidenceScore = res.event.outcome.score;
