@@ -20,7 +20,7 @@ async function publishService(svc) {
   if (!hubUrl) return { ok: false, error: 'no_hub_url' };
 
   const nodeId = getNodeId();
-  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/service';
+  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/service/publish';
   const timeout = require('../config').HTTP_TRANSPORT_TIMEOUT_MS;
 
   const body = {
@@ -65,17 +65,18 @@ async function updateService(listingId, updates) {
   if (!hubUrl) return { ok: false, error: 'no_hub_url' };
 
   const nodeId = getNodeId();
-  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/service/' + encodeURIComponent(listingId);
+  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/service/update';
   const timeout = require('../config').HTTP_TRANSPORT_TIMEOUT_MS;
 
   const body = {
     sender_id: nodeId,
+    listing_id: listingId,
     ...updates,
   };
 
   try {
     const res = await fetch(endpoint, {
-      method: 'PATCH',
+      method: 'POST',
       headers: buildHubHeaders(),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeout),

@@ -196,6 +196,27 @@ async function main() {
           console.warn('[Heartbeat] Failed to start: ' + (e.message || e));
         }
 
+        // ATP: auto-start merchant agent if enabled
+        try {
+          const { defaultHandler, merchantAgent } = require('./src/atp');
+          const atpMode = defaultHandler.getAtpMode();
+          if (atpMode === 'auto' || atpMode === 'on') {
+            const hubUrl = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || '';
+            if (hubUrl) {
+              const services = defaultHandler.resolveAtpServices();
+              merchantAgent.start({
+                services: services,
+                onOrder: defaultHandler.defaultOrderHandler,
+                pollMs: 30000,
+              }).catch(function (atpErr) {
+                console.warn('[ATP] merchantAgent.start failed: ' + (atpErr && atpErr.message || atpErr));
+              });
+            }
+          }
+        } catch (atpInitErr) {
+          console.warn('[ATP] Auto-init failed: ' + (atpInitErr && atpInitErr.message || atpInitErr));
+        }
+
         let currentSleepMs = minSleepMs;
         let cycleCount = 0;
 

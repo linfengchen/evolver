@@ -22,7 +22,10 @@ const DEFAULT_POLL_MS = 30000;
  * @param {number} [opts.pollMs] - order poll interval (default 30s)
  */
 async function start(opts) {
-  if (_running) return;
+  if (_running) {
+    console.log('[ATP-Merchant] Already running, skipping duplicate start.');
+    return;
+  }
   _running = true;
 
   const hello = await sendHelloToHub();

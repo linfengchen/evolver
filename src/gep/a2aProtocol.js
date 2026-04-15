@@ -530,6 +530,9 @@ function sendHelloToHub() {
         _cachedHubNodeSecret = secret;
         _cachedHubNodeSecretAt = Date.now();
         _persistNodeSecret(secret);
+      } else if (!getHubNodeSecret()) {
+        console.log('[Hello] No local secret after hello; auto-rotating...');
+        return _sendHelloWithRotate();
       }
       return { ok: true, response: data };
     })
