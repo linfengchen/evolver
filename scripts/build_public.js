@@ -358,8 +358,13 @@ function generateIntegrityFile(outDirAbs, fileList) {
 }
 
 function validateNoPrivatePaths(outDirAbs) {
-  // Basic safeguard: forbid docs/ and memory/ in output.
   const forbiddenPrefixes = ['docs/', 'memory/'];
+  const forbiddenExact = [
+    'scripts/build_public.js',
+    'scripts/publish_public.js',
+    'scripts/pre_publish_check.js',
+    'public.manifest.json',
+  ];
   const all = listFilesRec(outDirAbs);
   for (const abs of all) {
     const rel = normalizePosix(path.relative(outDirAbs, abs));
@@ -367,6 +372,9 @@ function validateNoPrivatePaths(outDirAbs) {
       if (rel.startsWith(pref)) {
         throw new Error(`Build validation failed: forbidden path in output: ${rel}`);
       }
+    }
+    if (forbiddenExact.includes(rel)) {
+      throw new Error(`Build validation failed: private file in output: ${rel}`);
     }
   }
 }

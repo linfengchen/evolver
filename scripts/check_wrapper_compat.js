@@ -102,8 +102,8 @@ function main() {
   }
 
   if (broken.length > 0) {
-    process.stdout.write(`\n${broken.length} interface(s) broken. feishu-evolver-wrapper-private needs update.\n`);
-    process.stdout.write('Wrapper repo: /home/kprimo97/evomap/feishu-evolver-wrapper-private\n');
+    process.stdout.write(`\n${broken.length} interface(s) broken. feishu-evolver-wrapper needs update.\n`);
+    process.stdout.write('Check the feishu-evolver-wrapper repo for required updates.\n');
     process.exit(1);
   } else {
     process.stdout.write(`\nAll ${results.length} interface(s) compatible.\n`);
