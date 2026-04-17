@@ -220,6 +220,39 @@ async function createGithubIssue(repo, title, body, token) {
   return { number: data.number, url: data.html_url };
 }
 
+function escapeSearchQuery(s) {
+  return String(s || '').replace(/"/g, '').replace(/[\r\n]+/g, ' ').trim();
+}
+
+async function findExistingIssue(repo, title, token) {
+  const titleSig = escapeSearchQuery(title).slice(0, 120);
+  if (!titleSig) return null;
+  const q = 'repo:' + repo + ' is:issue is:open in:title "' + titleSig + '"';
+  const url = 'https://api.github.com/search/issues?per_page=5&q=' + encodeURIComponent(q);
+  const headers = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  let response;
+  try {
+    response = await fetch(url, { method: 'GET', headers: headers, signal: AbortSignal.timeout(10000) });
+  } catch (e) {
+    return null;
+  }
+  if (!response.ok) return null;
+  let data;
+  try { data = await response.json(); } catch (_) { return null; }
+  const items = Array.isArray(data && data.items) ? data.items : [];
+  const match = items.find(function (it) {
+    return it && typeof it.title === 'string' && it.title.trim() === title.trim() && it.state === 'open';
+  }) || items.find(function (it) {
+    return it && it.state === 'open' && typeof it.title === 'string' && it.title.indexOf(titleSig) !== -1;
+  });
+  if (!match) return null;
+  return { number: match.number, url: match.html_url, title: match.title };
+}
+
 async function maybeReportIssue(opts) {
   const config = getConfig();
   if (!config) return;
@@ -240,6 +273,24 @@ async function maybeReportIssue(opts) {
   const body = buildIssueBody(opts);
 
   try {
+    const existing = await findExistingIssue(config.repo, title, token);
+    if (existing) {
+      console.log('[IssueReporter] Open issue already exists (#' + existing.number + '): ' + existing.url + '. Skipping duplicate report.');
+      const state = readState();
+      const errorKey = computeErrorKey(signals);
+      let recentKeys = Array.isArray(state.recentIssueKeys) ? state.recentIssueKeys : [];
+      if (!recentKeys.includes(errorKey)) recentKeys.push(errorKey);
+      if (recentKeys.length > 20) recentKeys = recentKeys.slice(-20);
+      writeState({
+        lastReportedAt: new Date().toISOString(),
+        recentIssueKeys: recentKeys,
+        lastIssueUrl: existing.url,
+        lastIssueNumber: existing.number,
+        lastSkippedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
     const result = await createGithubIssue(config.repo, title, body, token);
     console.log('[IssueReporter] Created GitHub issue #' + result.number + ': ' + result.url);
 
@@ -259,4 +310,4 @@ async function maybeReportIssue(opts) {
   }
 }
 
-module.exports = { maybeReportIssue, buildIssueBody, shouldReport };
+module.exports = { maybeReportIssue, buildIssueBody, shouldReport, findExistingIssue };
