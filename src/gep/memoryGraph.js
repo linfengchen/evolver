@@ -91,6 +91,52 @@ function appendJsonl(filePath, obj) {
   fs.appendFileSync(filePath, JSON.stringify(obj) + '\n', 'utf8');
 }
 
+// Hub sync: whitelist of MemoryGraphEvent kinds that are safe to archive at Hub.
+// Only these kinds are mirrored; all kinds remain in the local jsonl regardless.
+const HUB_SYNC_KIND_ALLOWLIST = new Set([
+  'attempt',
+  'validation',
+  'skill_emit',
+  'outcome',
+  'mutation_draft',
+  'solidify',
+]);
+
+function syncEventToHub(ev) {
+  if (!ev || typeof ev !== 'object') return;
+  if (process.env.MEMORY_GRAPH_SYNC_HUB === '0') return;
+  const kind = ev && ev.kind ? String(ev.kind) : null;
+  if (!kind || !HUB_SYNC_KIND_ALLOWLIST.has(kind)) return;
+  let a2a;
+  try { a2a = require('./a2aProtocol'); } catch (_) { return; }
+  const hubUrl = typeof a2a.getHubUrl === 'function' ? a2a.getHubUrl() : (process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || '');
+  if (!hubUrl) return;
+  const senderId = typeof a2a.getNodeId === 'function' ? a2a.getNodeId() : null;
+  if (!senderId) return;
+  const secret = typeof a2a.getHubNodeSecret === 'function' ? a2a.getHubNodeSecret() : null;
+  if (!secret) return;
+  const endpoint = hubUrl.replace(/\/+$/, '') + '/a2a/memory/event';
+  const body = JSON.stringify({ sender_id: senderId, event: ev });
+  const timeoutMs = 5000;
+  const controller = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(timeoutMs) : undefined;
+  try {
+    const p = fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + secret },
+      body,
+      signal: controller,
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch(function () { /* best-effort; local jsonl is source of truth */ });
+    }
+  } catch (_) { /* noop */ }
+}
+
+function writeMemoryGraphEvent(ev) {
+  appendJsonl(memoryGraphPath(), ev);
+  syncEventToHub(ev);
+}
+
 function readJsonIfExists(filePath, fallback) {
   try {
     if (!fs.existsSync(filePath)) return fallback;
@@ -304,7 +350,7 @@ function resetMemoryPreferences({ reason, currentEnvFingerprintKey, currentGeneL
       started_at: ts,
     },
   };
-  appendJsonl(memoryGraphPath(), epochEvent);
+  writeMemoryGraphEvent(epochEvent);
 
   const statePath = memoryGraphStatePath();
   const state = readJsonIfExists(statePath, {});
@@ -518,7 +564,7 @@ function recordSignalSnapshot({ signals, observations }) {
     },
     observed: observations && typeof observations === 'object' ? observations : null,
   };
-  appendJsonl(memoryGraphPath(), ev);
+  writeMemoryGraphEvent(ev);
   return ev;
 }
 
@@ -587,7 +633,7 @@ function recordHypothesis({
     },
     observed: observations && typeof observations === 'object' ? observations : null,
   };
-  appendJsonl(memoryGraphPath(), ev);
+  writeMemoryGraphEvent(ev);
   return { hypothesisId, signalKey };
 }
 
@@ -669,7 +715,7 @@ function recordAttempt({
     observed: observations && typeof observations === 'object' ? observations : null,
   };
 
-  appendJsonl(memoryGraphPath(), ev);
+  writeMemoryGraphEvent(ev);
 
   // State is mutable; graph is append-only.
   const statePath = memoryGraphStatePath();
@@ -965,7 +1011,7 @@ function recordOutcomeFromState({ signals, observations }) {
     },
   };
 
-  appendJsonl(memoryGraphPath(), ev);
+  writeMemoryGraphEvent(ev);
 
   // Persist explicit confidence snapshots (append-only) for auditability.
   try {
@@ -978,7 +1024,7 @@ function recordOutcomeFromState({ signals, observations }) {
         outcomeEventId: ev.id,
         halfLifeDays: 30,
       });
-      appendJsonl(memoryGraphPath(), edgeEv);
+      writeMemoryGraphEvent(edgeEv);
 
       const geneEv = buildGeneOutcomeConfidenceEvent({
         geneId: String(last.gene_id),
@@ -986,7 +1032,7 @@ function recordOutcomeFromState({ signals, observations }) {
         outcomeEventId: ev.id,
         halfLifeDays: 45,
       });
-      appendJsonl(memoryGraphPath(), geneEv);
+      writeMemoryGraphEvent(geneEv);
     }
     // TTT-inspired: record confidence edges for all chunk genes (shared outcome)
     if (Array.isArray(last.chunk_gene_ids)) {
@@ -1001,14 +1047,14 @@ function recordOutcomeFromState({ signals, observations }) {
             outcomeEventId: ev.id,
             halfLifeDays: 30,
           });
-          appendJsonl(memoryGraphPath(), chunkEdgeEv);
+          writeMemoryGraphEvent(chunkEdgeEv);
           const chunkGeneEv = buildGeneOutcomeConfidenceEvent({
             geneId: String(cgId),
             geneCategory: null,
             outcomeEventId: ev.id,
             halfLifeDays: 45,
           });
-          appendJsonl(memoryGraphPath(), chunkGeneEv);
+          writeMemoryGraphEvent(chunkGeneEv);
         } catch (_) {}
       }
     }
@@ -1051,7 +1097,7 @@ function recordExternalCandidate({ asset, source, signals }) {
     },
   };
 
-  appendJsonl(memoryGraphPath(), ev);
+  writeMemoryGraphEvent(ev);
   return ev;
 }
 
