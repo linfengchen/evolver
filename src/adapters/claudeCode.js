@@ -11,24 +11,36 @@ function buildClaudeHooks(evolverRoot) {
     hooks: {
       SessionStart: [
         {
-          type: 'command',
-          command: `node ${scriptsBase}/evolver-session-start.js`,
-          timeout: 3,
+          hooks: [
+            {
+              type: 'command',
+              command: `node ${scriptsBase}/evolver-session-start.js`,
+              timeout: 3,
+            },
+          ],
         },
       ],
       PostToolUse: [
         {
-          type: 'command',
-          command: `node ${scriptsBase}/evolver-signal-detect.js`,
           matcher: 'Write',
-          timeout: 2,
+          hooks: [
+            {
+              type: 'command',
+              command: `node ${scriptsBase}/evolver-signal-detect.js`,
+              timeout: 2,
+            },
+          ],
         },
       ],
       Stop: [
         {
-          type: 'command',
-          command: `node ${scriptsBase}/evolver-session-end.js`,
-          timeout: 8,
+          hooks: [
+            {
+              type: 'command',
+              command: `node ${scriptsBase}/evolver-session-end.js`,
+              timeout: 8,
+            },
+          ],
         },
       ],
     },
@@ -102,10 +114,16 @@ function uninstall({ configRoot }) {
         if (data.hooks) {
           for (const event of Object.keys(data.hooks)) {
             if (Array.isArray(data.hooks[event])) {
-              data.hooks[event] = data.hooks[event].filter(h => {
-                const cmd = h.command || '';
-                return !cmd.includes('evolver-session') && !cmd.includes('evolver-signal');
-              });
+              data.hooks[event] = data.hooks[event]
+                .map(matcher => {
+                  if (!matcher || !Array.isArray(matcher.hooks)) return matcher;
+                  const filtered = matcher.hooks.filter(h => {
+                    const cmd = (h && h.command) || '';
+                    return !cmd.includes('evolver-session') && !cmd.includes('evolver-signal');
+                  });
+                  return { ...matcher, hooks: filtered };
+                })
+                .filter(matcher => matcher && Array.isArray(matcher.hooks) && matcher.hooks.length > 0);
               if (data.hooks[event].length === 0) delete data.hooks[event];
             }
           }

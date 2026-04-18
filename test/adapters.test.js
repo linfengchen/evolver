@@ -240,6 +240,24 @@ describe('claudeCode adapter', () => {
       assert.ok(!claudeMd.includes('evolver-evolution-memory'));
     } finally { cleanup(tmp); }
   });
+
+  it('buildClaudeHooks produces Claude Code HookMatcher structure', () => {
+    const hooks = claudeAdapter.buildClaudeHooks('/evolver');
+    for (const event of ['SessionStart', 'PostToolUse', 'Stop']) {
+      const matchers = hooks.hooks[event];
+      assert.ok(Array.isArray(matchers), `${event} must be an array`);
+      assert.ok(matchers.length > 0, `${event} must have matchers`);
+      for (const matcher of matchers) {
+        assert.ok(Array.isArray(matcher.hooks), `${event} matcher must have .hooks array`);
+        for (const cmd of matcher.hooks) {
+          assert.equal(cmd.type, 'command');
+          assert.equal(typeof cmd.command, 'string');
+          assert.ok(cmd.command.length > 0);
+        }
+      }
+    }
+    assert.equal(hooks.hooks.PostToolUse[0].matcher, 'Write');
+  });
 });
 
 // -- Codex adapter --
