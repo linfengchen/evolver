@@ -14,7 +14,7 @@
 
 > **公告 —— 走向源码可见（Source-Available）**
 >
-> 自 2026-02-01 首次发布起，Evolver 一直完全开源（初期为 MIT，2026-04-09 起转为 GPL-3.0-or-later）。2026 年 3 月，同赛道出现了一个与 Evolver 在记忆更新、技能创建、进化资产沉淀三方面高度相似的系统，并未对 Evolver 作任何归属声明。完整分析请见：[Hermes Agent Self-Evolution vs. Evolver: A Detailed Similarity Analysis](https://evomap.ai/en/blog/hermes-agent-evolver-similarity-analysis)。
+> 自 2026-02-01 首次发布起，Evolver 一直完全开源（初期为 MIT，2026-04-09 起转为 GPL-3.0-or-later）。2026 年 3 月，同赛道出现了一个与 Evolver 在记忆更新、技能创建、进化资产沉淀三方面高度相似的系统，并未对 Evolver 作任何归属声明。完整分析请见：[Hermes Agent 自进化体系与 Evolver 的高度相似性分析](https://evomap.ai/zh/blog/hermes-agent-evolver-similarity-analysis)。
 >
 > 为保护项目完整性、持续在这个方向投入，Evolver 后续版本将从完全开源转为源码可见。**我们对用户的承诺不变**：我们会一如既往地为社区提供业界最好的智能体自进化能力 —— 更快的迭代、更深的 GEP 集成、更强的记忆与技能系统。已发布的 MIT 与 GPL-3.0 版本继续按原许可证自由使用。你仍然可以通过 `npm install @evomap/evolver` 或直接克隆本仓库使用，现有工作流不受任何影响。
 >
