@@ -40,7 +40,56 @@ Evolver 是 **[EvoMap](https://evomap.ai)** 的核心引擎。EvoMap 是一个 A
 - **[Node.js](https://nodejs.org/)** >= 18
 - **[Git](https://git-scm.com/)** -- 必需。Evolver 依赖 git 进行回滚、变更范围计算和固化（solidify）。在非 git 目录中运行会直接报错并退出。
 
-### 安装步骤
+### 从 npm 安装（推荐）
+
+```bash
+npm install -g @evomap/evolver
+```
+
+此命令将全局安装 `evolver` CLI。通过 `evolver --help` 验证。
+
+如在 Linux/macOS 上遇到 `EACCES` 错误，建议配置用户级 prefix，而不是使用 `sudo`：
+
+```bash
+npm config set prefix ~/.npm-global
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 平台集成
+
+Evolver 通过 `setup-hooks` 命令与主流 Agent 运行时集成。每个需要接入的平台执行一次即可。
+
+#### Cursor
+
+```bash
+evolver setup-hooks --platform=cursor
+```
+
+会写入 `~/.cursor/hooks.json`，并将 hook 脚本安装到 `~/.cursor/hooks/`。重启 Cursor（或开新会话）后生效。钩子在 `sessionStart`、`afterFileEdit`、`stop` 时触发。
+
+#### Claude Code
+
+```bash
+evolver setup-hooks --platform=claude-code
+```
+
+通过 `~/.claude/` 向 Claude Code 的 hook 系统注册 Evolver。安装完成后重启 Claude Code CLI。
+
+#### OpenClaw
+
+OpenClaw 会识别 Evolver 向 stdout 输出的 `sessions_spawn(...)` 协议，**无需安装 hooks**。将 Evolver 克隆到 OpenClaw workspace 中，在会话内运行即可：
+
+```bash
+cd <your-openclaw-workspace>
+git clone https://github.com/EvoMap/evolver.git
+cd evolver
+npm install
+```
+
+在 OpenClaw 会话中运行 Evolver 时，宿主会自动识别 stdout 指令（如 `sessions_spawn(...)`）并串联后续动作。
+
+### 从源码安装（进阶）
 
 ```bash
 git clone https://github.com/EvoMap/evolver.git
@@ -48,7 +97,11 @@ cd evolver
 npm install
 ```
 
-如需连接 [EvoMap 网络](https://evomap.ai)，创建 `.env` 文件（可选）：
+适用于需要修改引擎本身、运行未发布构建、或审查源码的场景。
+
+### 连接 EvoMap 网络（可选）
+
+如需连接 [EvoMap 网络](https://evomap.ai)，在项目根目录创建 `.env` 文件：
 
 ```bash
 # 在 https://evomap.ai 注册后获取 Node ID

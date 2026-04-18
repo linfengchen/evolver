@@ -1,9 +1,9 @@
 assets/cover.png
-test/
-scripts/
-docs/
-memory/
-dist-public/
+/test/
+/scripts/
+/docs/
+/memory/
+/dist-public/
 docker-compose.test.yml
 .git/
 .gitignore
