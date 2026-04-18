@@ -54,10 +54,13 @@ describe('consumeHubEvents / getHubEvents', () => {
     global.fetch = async (url, opts) => {
       if (url.includes('/a2a/events/poll')) {
         pollCalled = true;
-        return { json: async () => ({ events: fakeEvents }) };
+        return { ok: true, status: 200, json: async () => ({ events: fakeEvents }) };
       }
       return {
+        ok: true,
+        status: 200,
         json: async () => ({ status: 'ok', has_pending_events: true }),
+        text: async () => '',
       };
     };
 
@@ -88,9 +91,9 @@ describe('consumeHubEvents / getHubEvents', () => {
     global.fetch = async (url) => {
       if (url.includes('/a2a/events/poll')) {
         pollCalled = true;
-        return { json: async () => ({ events: [] }) };
+        return { ok: true, status: 200, json: async () => ({ events: [] }) };
       }
-      return { json: async () => ({ status: 'ok' }) };
+      return { ok: true, status: 200, json: async () => ({ status: 'ok' }), text: async () => '' };
     };
 
     const logPath = path.join(tmpDir, 'evolver_loop.log');
@@ -106,9 +109,9 @@ describe('consumeHubEvents / getHubEvents', () => {
     const fakeEvents = [{ type: 'council_invite', payload: {} }];
     global.fetch = async (url) => {
       if (url.includes('/a2a/events/poll')) {
-        return { json: async () => ({ payload: { events: fakeEvents } }) };
+        return { ok: true, status: 200, json: async () => ({ payload: { events: fakeEvents } }) };
       }
-      return { json: async () => ({ status: 'ok', has_pending_events: true }) };
+      return { ok: true, status: 200, json: async () => ({ status: 'ok', has_pending_events: true }), text: async () => '' };
     };
 
     const logPath = path.join(tmpDir, 'evolver_loop.log');

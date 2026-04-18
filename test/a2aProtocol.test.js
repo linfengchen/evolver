@@ -216,7 +216,10 @@ describe('sendHeartbeat log touch', () => {
     fs.utimesSync(logPath, oldTime, oldTime);
 
     global.fetch = async () => ({
+      ok: true,
+      status: 200,
       json: async () => ({ status: 'ok' }),
+      text: async () => '',
     });
 
     var result = await sendHeartbeat();
@@ -231,7 +234,10 @@ describe('sendHeartbeat log touch', () => {
     if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
 
     global.fetch = async () => ({
+      ok: true,
+      status: 200,
       json: async () => ({ status: 'ok' }),
+      text: async () => '',
     });
 
     var result = await sendHeartbeat();
