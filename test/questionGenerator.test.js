@@ -125,6 +125,37 @@ describe('questionGenerator', () => {
       });
       assert.strictEqual(qs2.length, 0, 'duplicate question should be filtered');
     });
+
+    it('skips infrastructure 401 errors from recurring_errsig', () => {
+      const qs = generateQuestions({
+        signals: [
+          'recurring_error',
+          'recurring_errsig(3208x): LLM ERROR] 401 {"type":"error","error":{"type":"authentication_error","message":"invalid api key"',
+        ],
+        recentEvents: [],
+      });
+      assert.strictEqual(qs.length, 0, 'invalid api key storms must not become community bounties');
+    });
+
+    it('skips rate-limit / overloaded errors from recurring_errsig', () => {
+      const qs = generateQuestions({
+        signals: [
+          'recurring_error',
+          'recurring_errsig(120x): LLM ERROR] 529 {"type":"overloaded_error","message":"service overloaded"',
+        ],
+        recentEvents: [],
+      });
+      assert.strictEqual(qs.length, 0, '5xx overload errors must not become community bounties');
+    });
+
+    it('skips infrastructure errors from capability_gap transcript', () => {
+      const qs = generateQuestions({
+        signals: ['capability_gap'],
+        recentEvents: [],
+        sessionTranscript: 'Error: fetch failed ECONNRESET while calling api.anthropic.com',
+      });
+      assert.strictEqual(qs.length, 0, 'network errors must not turn into capability_gap bounties');
+    });
   });
 
   describe('generateUrgentQuestions (post-solidify)', () => {
@@ -188,6 +219,32 @@ describe('questionGenerator', () => {
     it('returns empty when no failure indicators', () => {
       const qs = generateUrgentQuestions({});
       assert.strictEqual(qs.length, 0);
+    });
+
+    it('skips validation failures caused by infrastructure errors', () => {
+      const qs = generateUrgentQuestions({
+        validationFailed: true,
+        validationErrors: 'LLM ERROR] 401 authentication_error invalid api key',
+        geneId: 'gene_any',
+      });
+      assert.strictEqual(qs.length, 0, '401 during validation is a user-local issue, not a community question');
+    });
+
+    it('skips LLM review rejections caused by rate limits', () => {
+      const qs = generateUrgentQuestions({
+        llmReviewRejected: true,
+        llmReviewReason: 'HTTP 429 rate limit exceeded from upstream provider',
+      });
+      assert.strictEqual(qs.length, 0, '429 rate limit review rejection must not leak into bounties');
+    });
+
+    it('skips task completion failures caused by network errors', () => {
+      const qs = generateUrgentQuestions({
+        taskCompletionFailed: true,
+        taskTitle: 'Fetch remote recipe and solidify patch',
+        taskSignals: 'log_error,ECONNRESET,fetch failed',
+      });
+      assert.strictEqual(qs.length, 0, 'ECONNRESET during task execution is infra, not capability gap');
     });
 
     it('returns max 2 urgent questions', () => {

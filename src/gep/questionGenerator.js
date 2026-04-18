@@ -22,6 +22,16 @@ const URGENT_INTERVAL_MS = 5 * 60 * 1000; // urgent path: at most once per 5 min
 const MAX_QUESTIONS_PER_CYCLE = 3;
 const MAX_URGENT_QUESTIONS = 2;
 
+// Infrastructure / user-local failures that the ecosystem cannot resolve.
+// Keep in sync with evomap-hub/src/lib/agentBountySpamGuard.js so the two
+// gates never disagree about what is worth asking the community.
+var INFRA_ERROR_RE = /\b(401|403|429|500|502|503|504|529)\b|invalid[\s_-]?api[\s_-]?key|authentication[\s_-]?error|unauthorized|permission[\s_-]?denied|rate[\s_-]?limit|too[\s_-]?many[\s_-]?requests|overloaded[\s_-]?error|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|fetch[\s_-]?failed|network[\s_-]?error|connection[\s_-]?refused|context[\s_-]?length|token[\s_-]?limit|(?:context|input)[\s_-]?window[\s_-]?exceeded|maximum[\s_-]?context[\s_-]?length/i;
+
+function isInfraError(text) {
+  if (!text || typeof text !== 'string') return false;
+  return INFRA_ERROR_RE.test(text);
+}
+
 function readState() {
   try {
     if (fs.existsSync(QUESTION_STATE_FILE)) {
@@ -87,19 +97,23 @@ function buildStandardCandidates(signals, recentEvents, transcript, memory) {
     var errSig = signals.find(function(s) { return s.startsWith('recurring_errsig'); });
     if (errSig) {
       var errDetail = errSig.replace(/^recurring_errsig\(\d+x\):/, '').trim().slice(0, 120);
-      candidates.push({
-        question: 'Recurring error in evolution cycle that auto-repair cannot resolve: ' + errDetail + ' -- What approaches or patches have worked for similar issues?',
-        amount: 0,
-        signals: ['recurring_error', 'auto_repair_failed'],
-        priority: 3,
-      });
+      // Skip infra/user-local failures (invalid api key, 429, network issues)
+      // -- the community cannot fix the user's own environment.
+      if (!isInfraError(errDetail)) {
+        candidates.push({
+          question: 'Recurring error in evolution cycle that auto-repair cannot resolve: ' + errDetail + ' -- What approaches or patches have worked for similar issues?',
+          amount: 0,
+          signals: ['recurring_error', 'auto_repair_failed'],
+          priority: 3,
+        });
+      }
     }
   }
 
   // Strategy 2: Capability gaps detected from user conversations
   if (signalSet.has('capability_gap') || signalSet.has('unsupported_input_type')) {
     var gapContext = extractErrorContext(transcript, 150);
-    if (gapContext) {
+    if (gapContext && !isInfraError(gapContext)) {
       candidates.push({
         question: 'Capability gap detected in agent environment: ' + gapContext + ' -- How can this be addressed or what alternative approaches exist?',
         amount: 0,
@@ -175,12 +189,14 @@ function buildStandardCandidates(signals, recentEvents, transcript, memory) {
       return s === 'log_error' || s === 'test_failure' || s === 'deployment_issue'
         || s.startsWith('errsig:');
     }).slice(0, 3);
-    candidates.push({
-      question: 'No matching solution found in ecosystem for active problem (signals: ' + problemSignalList.join(', ') + '). Context: ' + (problemCtx || 'complex multi-signal issue') + ' -- What strategies, patterns, or tools address this class of problem?',
-      amount: 0,
-      signals: ['hub_search_miss', 'ecosystem_gap', 'solution_sought'],
-      priority: 2,
-    });
+    if (!isInfraError(problemCtx) && !isInfraError(problemSignalList.join(' '))) {
+      candidates.push({
+        question: 'No matching solution found in ecosystem for active problem (signals: ' + problemSignalList.join(', ') + '). Context: ' + (problemCtx || 'complex multi-signal issue') + ' -- What strategies, patterns, or tools address this class of problem?',
+        amount: 0,
+        signals: ['hub_search_miss', 'ecosystem_gap', 'solution_sought'],
+        priority: 2,
+      });
+    }
   }
 
   // Strategy 8: Repair loop -- stuck in repair->fail->repair cycle
@@ -222,12 +238,14 @@ function buildUrgentCandidates(opts) {
   if (o.validationFailed) {
     var valErrors = String(o.validationErrors || '').slice(0, 200);
     var geneId = o.geneId || 'unknown';
-    candidates.push({
-      question: 'Evolution cycle produced a patch that failed validation (gene: ' + geneId + '). Errors: ' + valErrors + ' -- What is the correct approach to fix this validation failure?',
-      amount: 0,
-      signals: ['validation_failure', 'solidify_rejected'],
-      priority: 3,
-    });
+    if (!isInfraError(valErrors)) {
+      candidates.push({
+        question: 'Evolution cycle produced a patch that failed validation (gene: ' + geneId + '). Errors: ' + valErrors + ' -- What is the correct approach to fix this validation failure?',
+        amount: 0,
+        signals: ['validation_failure', 'solidify_rejected'],
+        priority: 3,
+      });
+    }
   }
 
   // U2: Low confidence outcome -- solidify scored below threshold
@@ -245,12 +263,14 @@ function buildUrgentCandidates(opts) {
   // U3: LLM review rejection -- a second-opinion model rejected the change
   if (o.llmReviewRejected) {
     var reason = String(o.llmReviewReason || '').slice(0, 200);
-    candidates.push({
-      question: 'Proposed code change was rejected by LLM review: ' + reason + ' -- What alternative implementation approach would pass quality review?',
-      amount: 0,
-      signals: ['llm_review_rejected', 'quality_concern'],
-      priority: 3,
-    });
+    if (!isInfraError(reason)) {
+      candidates.push({
+        question: 'Proposed code change was rejected by LLM review: ' + reason + ' -- What alternative implementation approach would pass quality review?',
+        amount: 0,
+        signals: ['llm_review_rejected', 'quality_concern'],
+        priority: 3,
+      });
+    }
   }
 
   // U4: Zero blast radius after non-trivial attempt
@@ -268,12 +288,14 @@ function buildUrgentCandidates(opts) {
   if (o.taskCompletionFailed) {
     var taskTitle = String(o.taskTitle || '').slice(0, 120);
     var taskSignals = String(o.taskSignals || '').slice(0, 100);
-    candidates.push({
-      question: 'Failed to complete claimed task: "' + taskTitle + '" (signals: ' + taskSignals + '). The problem exceeds current capabilities. What approaches, tools, or patterns would solve this?',
-      amount: 0,
-      signals: ['task_completion_failed', 'help_needed'],
-      priority: 3,
-    });
+    if (!isInfraError(taskTitle) && !isInfraError(taskSignals)) {
+      candidates.push({
+        question: 'Failed to complete claimed task: "' + taskTitle + '" (signals: ' + taskSignals + '). The problem exceeds current capabilities. What approaches, tools, or patterns would solve this?',
+        amount: 0,
+        signals: ['task_completion_failed', 'help_needed'],
+        priority: 3,
+      });
+    }
   }
 
   return candidates;
