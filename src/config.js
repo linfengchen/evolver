@@ -84,6 +84,23 @@ const SELF_PR_TIMEOUT_MS = envInt('EVOLVER_SELF_PR_TIMEOUT_MS', 30000);
 
 const LEAK_CHECK_MODE = envStr('EVOLVER_LEAK_CHECK', 'warn');
 
+// --- Validator mode (opt-in) ---
+// Opt-in node role: when enabled, the evolver periodically fetches assigned
+// validation tasks from the Hub, runs the commands in an isolated sandbox,
+// and submits ValidationReports. Default is OFF for backward compatibility.
+
+const VALIDATOR_ENABLED = (function () {
+  const v = String(process.env.EVOLVER_VALIDATOR_ENABLED || '').toLowerCase().trim();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+})();
+const VALIDATOR_STAKE_AMOUNT = envInt('EVOLVER_VALIDATOR_STAKE_AMOUNT', 100);
+const VALIDATOR_MAX_TASKS_PER_CYCLE = envInt('EVOLVER_VALIDATOR_MAX_TASKS_PER_CYCLE', 2);
+const VALIDATOR_FETCH_TIMEOUT_MS = envInt('EVOLVER_VALIDATOR_FETCH_TIMEOUT_MS', 8000);
+const VALIDATOR_REPORT_TIMEOUT_MS = envInt('EVOLVER_VALIDATOR_REPORT_TIMEOUT_MS', 10000);
+const VALIDATOR_STAKE_TIMEOUT_MS = envInt('EVOLVER_VALIDATOR_STAKE_TIMEOUT_MS', 10000);
+const VALIDATOR_CMD_TIMEOUT_MS = envInt('EVOLVER_VALIDATOR_CMD_TIMEOUT_MS', 60000);
+const VALIDATOR_BATCH_TIMEOUT_MS = envInt('EVOLVER_VALIDATOR_BATCH_TIMEOUT_MS', 180000);
+
 module.exports = {
   // Network
   HELLO_TIMEOUT_MS,
@@ -136,6 +153,15 @@ module.exports = {
   SELF_PR_TIMEOUT_MS,
   // Security
   LEAK_CHECK_MODE,
+  // Validator (opt-in role)
+  VALIDATOR_ENABLED,
+  VALIDATOR_STAKE_AMOUNT,
+  VALIDATOR_MAX_TASKS_PER_CYCLE,
+  VALIDATOR_FETCH_TIMEOUT_MS,
+  VALIDATOR_REPORT_TIMEOUT_MS,
+  VALIDATOR_STAKE_TIMEOUT_MS,
+  VALIDATOR_CMD_TIMEOUT_MS,
+  VALIDATOR_BATCH_TIMEOUT_MS,
   // Helpers
   envInt,
   envFloat,

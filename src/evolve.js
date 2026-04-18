@@ -1604,6 +1604,20 @@ async function run() {
         console.log(`[LessonBank] Received ${hubLessons.length} lesson(s) from ecosystem.`);
       }
 
+      // Opt-in validator role: process validation tasks assigned to this node.
+      // Feature-gated by EVOLVER_VALIDATOR_ENABLED; no-ops when disabled.
+      try {
+        const { runValidatorCycle, isValidatorEnabled } = require('./gep/validator');
+        if (isValidatorEnabled()) {
+          const vr = await runValidatorCycle({});
+          if (vr && vr.processed > 0) {
+            console.log(`[Validator] Processed ${vr.processed}/${vr.tasks} validation task(s).`);
+          }
+        }
+      } catch (e) {
+        console.log(`[Validator] Cycle failed (non-fatal): ${e && e.message ? e.message : e}`);
+      }
+
       if (hubTasks.length > 0) {
         let taskMemoryEvents = [];
         try {
