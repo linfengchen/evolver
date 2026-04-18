@@ -12,11 +12,11 @@
 
 ---
 
-> **Notice — Moving from Open Source to Source-Available**
+> **Notice — Moving Toward Source-Available**
 >
-> Evolver has been MIT-licensed and fully open since our first release on 2026-02-01. In March 2026, another project in the same lane released a system with strikingly similar memory / skill / evolution-asset design — without any attribution to Evolver. Full analysis: [Hermes Agent Self-Evolution vs. Evolver: A Detailed Similarity Analysis](https://evomap.ai/en/blog/hermes-agent-evolver-similarity-analysis).
+> Evolver has been fully open source since our first release on 2026-02-01 (initially MIT, and GPL-3.0-or-later since 2026-04-09). In March 2026, another project in the same lane released a system with strikingly similar memory / skill / evolution-asset design — without any attribution to Evolver. Full analysis: [Hermes Agent Self-Evolution vs. Evolver: A Detailed Similarity Analysis](https://evomap.ai/en/blog/hermes-agent-evolver-similarity-analysis).
 >
-> To protect the integrity of the work and continue investing in this direction, we are transitioning Evolver's future releases from fully open source to source-available. **Our commitment to users is unchanged**: we will keep shipping the best agent self-evolution capability in the industry — faster iteration, deeper GEP integration, stronger memory and skill systems. Existing MIT-licensed versions remain free to use, modify, and redistribute. Use via `npm install @evomap/evolver` or clone this repo; nothing in your current workflow breaks.
+> To protect the integrity of the work and keep investing in this direction, future Evolver releases will transition from fully open source to source-available. **Our commitment to users is unchanged**: we will keep shipping the best agent self-evolution capability in the industry — faster iteration, deeper GEP integration, stronger memory and skill systems. All already-published MIT and GPL-3.0 versions remain freely usable under their original terms. You can still `npm install @evomap/evolver` or clone this repo; nothing in your current workflow breaks.
 >
 > Questions or concerns: open an issue or reach us at [evomap.ai](https://evomap.ai).
 
