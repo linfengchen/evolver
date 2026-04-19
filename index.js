@@ -522,6 +522,15 @@ async function main() {
       process.exit(1);
     }
     const responseFilePath = responseFileFlag.slice('--response-file='.length);
+    {
+      const { getRepoRoot } = require('./src/gep/paths');
+      const resolvedResponsePath = path.resolve(responseFilePath);
+      const resolvedRepoRoot = path.resolve(getRepoRoot());
+      if (responseFilePath.includes('..') || !resolvedResponsePath.startsWith(resolvedRepoRoot)) {
+        console.error('[Distill] ERROR: Invalid response-file path "' + responseFilePath + '" - path traversal detected or path is outside the repository.');
+        process.exit(2);
+      }
+    }
     try {
       const responseText = fs.readFileSync(responseFilePath, 'utf8');
       const { completeDistillation } = require('./src/gep/skillDistiller');

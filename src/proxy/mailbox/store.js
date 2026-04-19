@@ -107,7 +107,9 @@ class MailboxStore {
   _persistState() {
     const dir = path.dirname(this._stateFile);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(this._stateFile, JSON.stringify(this._state, null, 2) + '\n', 'utf8');
+    const tmp = `${this._stateFile}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this._state, null, 2) + '\n', 'utf8');
+    fs.renameSync(tmp, this._stateFile);
   }
 
   _rebuildIndex() {
