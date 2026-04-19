@@ -1,5 +1,6 @@
 const { scoreTagOverlap, expandSignals } = require('./learningSignals');
 const { captureEnvFingerprint } = require('./envFingerprint');
+const cfg = require('../config');
 
 // ---------------------------------------------------------------------------
 // Lightweight semantic similarity (bag-of-words cosine) for Gene selection.
@@ -120,6 +121,28 @@ function getEpigeneticBoostLocal(gene, envFingerprint) {
   const envContext = [platform, arch, nodeVersion].filter(Boolean).join('/') || 'unknown';
   const mark = gene.epigenetic_marks.find(function (m) { return m && m.context === envContext; });
   return mark ? Number(mark.boost) || 0 : 0;
+}
+
+// Hard suppression based on epigenetic marks. Independent of memoryGraph's
+// per-signal-key ban, this acts as a second layer that catches genes which
+// have accumulated severe negative environmental marks. The biology metaphor
+// stays intact for marks above the threshold (soft score adjustment), but
+// once boost decays past the hard threshold (default -0.3, ~3 failures in
+// the same env), the gene is excluded from selection entirely until either
+// time decay erases the mark or a successful run rebuilds the boost.
+function isEpigeneticallySuppressed(gene, envFingerprint) {
+  if (!gene || !Array.isArray(gene.epigenetic_marks) || gene.epigenetic_marks.length === 0) {
+    return false;
+  }
+  const platform = envFingerprint && envFingerprint.platform ? String(envFingerprint.platform) : '';
+  const arch = envFingerprint && envFingerprint.arch ? String(envFingerprint.arch) : '';
+  const nodeVersion = envFingerprint && envFingerprint.node_version ? String(envFingerprint.node_version) : '';
+  const envContext = [platform, arch, nodeVersion].filter(Boolean).join('/') || 'unknown';
+  const mark = gene.epigenetic_marks.find(function (m) { return m && m.context === envContext; });
+  if (!mark) return false;
+  const boost = Number(mark.boost);
+  if (!Number.isFinite(boost)) return false;
+  return boost <= cfg.GENE_EPIGENETIC_HARD_BOOST;
 }
 
 function scoreGeneLearning(gene, signals, envFingerprint) {
@@ -243,6 +266,7 @@ function selectGene(genes, signals, opts) {
 
   const envFingerprint = captureEnvFingerprint();
   const scored = genesList
+    .filter(g => !isEpigeneticallySuppressed(g, envFingerprint))
     .map(g => {
       let s = scoreGene(g, signals);
       s += scoreGeneLearning(g, signals, envFingerprint);
@@ -264,14 +288,20 @@ function selectGene(genes, signals, opts) {
   const MEMORY_PREFERENCE_MULTIPLIER = 1.5;
   if (preferredGeneId && !(plateauOverride && plateauOverride.active)) {
     const idx = scored.findIndex(x => x.gene && x.gene.id === preferredGeneId);
-    if (idx >= 0 && (useDrift || !bannedGeneIds.has(preferredGeneId))) {
+    // Banned genes are filtered out below regardless of mode, so do not
+    // boost a preferred gene that is already on the ban list.
+    if (idx >= 0 && !bannedGeneIds.has(preferredGeneId)) {
       scored[idx] = { ...scored[idx], score: scored[idx].score * MEMORY_PREFERENCE_MULTIPLIER };
       scored.sort((a, b) => b.score - a.score);
     }
   }
 
-  // Low-efficiency suppression: do not repeat low-confidence paths unless drift is active.
-  const filtered = useDrift ? scored : scored.filter(x => x.gene && !bannedGeneIds.has(x.gene.id));
+  // Hard suppression: bannedGeneIds applies in all modes including drift.
+  // Drift exists to explore new combinations, not to resurrect proven failures.
+  // The previous `useDrift ? scored : ...` branch was a self-defeating loop:
+  // repeated failure -> plateau detection -> drift on -> ban bypassed -> same
+  // failed gene re-selected. See memoryGraph.js ban computation for context.
+  const filtered = scored.filter(x => x.gene && !bannedGeneIds.has(x.gene.id));
   if (filtered.length === 0) return { selected: null, alternatives: scored.slice(0, 4).map(x => x.gene), driftIntensity: driftIntensity, driftMode: 'none' };
 
   // TTT-inspired In-Place Gene preference: when the top scored gene is a full gene but
@@ -512,6 +542,7 @@ function selectMultiGeneChunk({ genes, signals, memoryAdvice, driftEnabled, fail
       if (!g || g.type !== 'Gene' || !g.id) return false;
       if (g.id === primary.selectedGene.id) return false;
       if (bannedGeneIds.has(g.id)) return false;
+      if (isEpigeneticallySuppressed(g, envFingerprint)) return false;
       return true;
     })
     .map(function (g) {
@@ -549,6 +580,7 @@ module.exports = {
   tokenize,
   computeDriftIntensity,
   isInplaceGene,
+  isEpigeneticallySuppressed,
   selectMultiGeneChunk,
   INPLACE_BLAST_MAX_FILES,
   INPLACE_BLAST_MAX_LINES,

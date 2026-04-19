@@ -3,6 +3,7 @@ const path = require('path');
 const { getMemoryDir, getEvolutionDir } = require('./paths');
 const { normalizePersonalityState, isValidPersonalityState, personalityKey } = require('./personality');
 const { isValidMutation, normalizeMutation } = require('./mutation');
+const cfg = require('../config');
 
 function ensureDir(dir) {
   try {
@@ -511,15 +512,24 @@ function getMemoryAdvice({ signals, genes, driftEnabled }) {
       prior: info.prior,
       hasPositiveEvidence,
     });
-    // Per-signal-key ban: only suppress a gene when it has failed
+    // Per-signal-key ban: suppress a gene when it has failed
     // repeatedly on keys similar to the current one (sim >= 0.8).
     // The old global ban used `info.attempts >= 4`, which could
     // incorrectly suppress a gene that performed well on unrelated
     // signals but poorly on one specific key.
-    if (!driftEnabled && info.perKeyAttempts >= 4 && info.best < 0.15) {
+    //
+    // The previous implementation gated this on `!driftEnabled`, which
+    // produced a self-defeating feedback loop: a gene that kept failing
+    // would trigger plateau detection in evolve.js, plateau detection
+    // forced drift on, and drift then bypassed this ban -- so the same
+    // failing gene kept being re-selected. Bans now apply regardless of
+    // drift: drift's purpose is to explore new combinations, not to
+    // resurrect proven failures. The `useDrift` branch in selector.js
+    // also honors bannedGeneIds for the same reason.
+    if (info.perKeyAttempts >= cfg.GENE_BAN_PER_KEY_ATTEMPTS && info.best < cfg.GENE_BAN_BEST_THRESHOLD) {
       bannedGeneIds.add(geneId);
     }
-    if (!driftEnabled && info.perKeyAttempts < 2 && info.prior_attempts >= 5 && info.prior < 0.10) {
+    if (info.perKeyAttempts < 2 && info.prior_attempts >= 5 && info.prior < 0.10) {
       bannedGeneIds.add(geneId);
     }
   }

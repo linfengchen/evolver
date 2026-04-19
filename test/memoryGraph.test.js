@@ -93,6 +93,81 @@ describe('memoryGraph - getMemoryAdvice', () => {
   });
 });
 
+// Helper: write outcome events directly so we can assert ban behavior without
+// running the full attempt -> outcome state-machine flow.
+function writeOutcomeEvents(tmpDir, geneId, signals, count, status) {
+  const graphPath = path.join(tmpDir, 'memory_graph.jsonl');
+  const signalKey = mg.computeSignalKey(signals);
+  const lines = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const ts = new Date(now - (count - i) * 1000).toISOString();
+    const ev = {
+      type: 'MemoryGraphEvent',
+      kind: 'outcome',
+      id: `mge_test_${i}`,
+      ts,
+      signal: { key: signalKey, signals },
+      gene: { id: geneId, category: 'repair' },
+      action: { id: `act_test_${i}` },
+      outcome: { status, score: status === 'failed' ? 0 : 1 },
+    };
+    lines.push(JSON.stringify(ev));
+  }
+  fs.writeFileSync(graphPath, lines.join('\n') + '\n');
+}
+
+describe('memoryGraph - getMemoryAdvice ban respects drift mode (regression)', () => {
+  // Regression for the plateau-drift-bypass-ban feedback loop (rule: drift's
+  // purpose is to explore new combinations, not to resurrect proven failures).
+  // Before the fix, both ban conditions were gated on `!driftEnabled`, so a
+  // gene that triggered plateau detection (which forces drift on) would
+  // bypass its own ban and stay in the candidate pool indefinitely.
+  let tmpDir, origEnv;
+  beforeEach(() => { ({ tmpDir, origEnv } = setupTmpEnv()); });
+  afterEach(() => { teardownTmpEnv(tmpDir, origEnv); });
+
+  const SIGNALS = ['log_error', 'recurring_error', 'repair_loop_detected'];
+  const FAILED_GENE = { id: 'gene_repair_failing', type: 'Gene' };
+
+  it('bans a saturated gene when drift is OFF', () => {
+    writeOutcomeEvents(tmpDir, FAILED_GENE.id, SIGNALS, 5, 'failed');
+    const advice = mg.getMemoryAdvice({
+      signals: SIGNALS,
+      genes: [FAILED_GENE],
+      driftEnabled: false,
+    });
+    assert.ok(advice.bannedGeneIds instanceof Set);
+    assert.ok(advice.bannedGeneIds.has(FAILED_GENE.id),
+      'baseline: 5 failures on same key with drift OFF should ban the gene');
+  });
+
+  it('ALSO bans a saturated gene when drift is ON (the fix)', () => {
+    writeOutcomeEvents(tmpDir, FAILED_GENE.id, SIGNALS, 5, 'failed');
+    const advice = mg.getMemoryAdvice({
+      signals: SIGNALS,
+      genes: [FAILED_GENE],
+      driftEnabled: true,
+    });
+    assert.ok(advice.bannedGeneIds instanceof Set);
+    assert.ok(advice.bannedGeneIds.has(FAILED_GENE.id),
+      'fix: drift mode must not bypass ban for repeatedly failing genes');
+  });
+
+  it('does not ban a gene with healthy success rate, drift on or off', () => {
+    writeOutcomeEvents(tmpDir, 'gene_healthy', SIGNALS, 5, 'success');
+    for (const drift of [false, true]) {
+      const advice = mg.getMemoryAdvice({
+        signals: SIGNALS,
+        genes: [{ id: 'gene_healthy', type: 'Gene' }],
+        driftEnabled: drift,
+      });
+      assert.ok(!advice.bannedGeneIds.has('gene_healthy'),
+        `successful gene should not be banned (driftEnabled=${drift})`);
+    }
+  });
+});
+
 describe('memoryGraph - recordSignalSnapshot', () => {
   let tmpDir, origEnv;
   beforeEach(() => { ({ tmpDir, origEnv } = setupTmpEnv()); });

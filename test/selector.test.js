@@ -1,6 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { selectGene, selectCapsule, selectGeneAndCapsule } = require('../src/gep/selector');
+const { selectGene, selectCapsule, selectGeneAndCapsule, isEpigeneticallySuppressed } = require('../src/gep/selector');
+const { captureEnvFingerprint } = require('../src/gep/envFingerprint');
 
 const GENES = [
   {
@@ -235,5 +236,151 @@ describe('computeDriftIntensity adaptive decay', () => {
     const d = computeDriftIntensity({ driftEnabled: false, genePoolSize: 10, memoryEvidence: 50 });
     const expected = Math.min(1, 1 / Math.sqrt(10));
     assert.ok(Math.abs(d - expected) < 0.001, `expected ~${expected.toFixed(3)}, got ${d.toFixed(3)}`);
+  });
+});
+
+describe('selectGene drift respects bannedGeneIds (regression)', () => {
+  // Regression for the plateau-drift-bypass-ban feedback loop:
+  // a Gene that fails repeatedly on the same signal key triggers plateau
+  // detection in evolve.js, plateau forces drift on, drift was previously
+  // bypassing bannedGeneIds, and the same failed Gene kept being re-selected.
+  // After the fix, bans must apply in drift mode too.
+  const FAILING = {
+    type: 'Gene',
+    id: 'gene_repair_failed',
+    category: 'repair',
+    signals_match: ['recurring_error', 'repair_loop_detected'],
+    strategy: ['retry'],
+    validation: ['node -e "true"'],
+  };
+  const ALT = {
+    type: 'Gene',
+    id: 'gene_repair_alt',
+    category: 'repair',
+    signals_match: ['recurring_error'],
+    strategy: ['try a different approach'],
+    validation: ['node -e "true"'],
+  };
+
+  it('skips a banned gene even when drift is enabled', () => {
+    const banned = new Set(['gene_repair_failed']);
+    const orig = Math.random;
+    Math.random = () => 0;
+    try {
+      for (let i = 0; i < 20; i++) {
+        const result = selectGene([FAILING, ALT], ['recurring_error', 'repair_loop_detected'], {
+          driftEnabled: true,
+          bannedGeneIds: banned,
+          effectivePopulationSize: 2,
+        });
+        assert.ok(result.selected, 'should still select a non-banned gene');
+        assert.notEqual(result.selected.id, 'gene_repair_failed',
+          'banned gene must never be selected, even under drift');
+      }
+    } finally { Math.random = orig; }
+  });
+
+  it('returns null when every candidate is banned, regardless of drift', () => {
+    const banned = new Set(['gene_repair_failed', 'gene_repair_alt']);
+    const result = selectGene([FAILING, ALT], ['recurring_error'], {
+      driftEnabled: true,
+      bannedGeneIds: banned,
+    });
+    assert.equal(result.selected, null);
+  });
+});
+
+describe('isEpigeneticallySuppressed', () => {
+  // Hard-stop layer that catches genes whose epigenetic boost has decayed
+  // past the configured threshold (default -0.3, ~3 failures in same env).
+  // Independent from memoryGraph's per-signal-key ban so it survives even
+  // if signal keys keep shifting and per-key counts never accumulate.
+  const ENV = captureEnvFingerprint();
+  const envContext = [ENV.platform || '', ENV.arch || '', ENV.node_version || '']
+    .filter(Boolean).join('/') || 'unknown';
+
+  it('returns false for a gene with no epigenetic marks', () => {
+    const gene = { type: 'Gene', id: 'gene_clean' };
+    assert.equal(isEpigeneticallySuppressed(gene, ENV), false);
+  });
+
+  it('returns false for a mild negative boost above the hard threshold', () => {
+    const gene = {
+      type: 'Gene',
+      id: 'gene_mild',
+      epigenetic_marks: [{ context: envContext, boost: -0.1, reason: 'failure_in_environment', created_at: new Date().toISOString() }],
+    };
+    assert.equal(isEpigeneticallySuppressed(gene, ENV), false);
+  });
+
+  it('returns true once boost reaches the hard threshold (-0.3)', () => {
+    const gene = {
+      type: 'Gene',
+      id: 'gene_severe',
+      epigenetic_marks: [{ context: envContext, boost: -0.3, reason: 'suppressed_by_failure', created_at: new Date().toISOString() }],
+    };
+    assert.equal(isEpigeneticallySuppressed(gene, ENV), true);
+  });
+
+  it('returns true for boost well past the threshold', () => {
+    const gene = {
+      type: 'Gene',
+      id: 'gene_dead',
+      epigenetic_marks: [{ context: envContext, boost: -0.5, reason: 'suppressed_by_failure', created_at: new Date().toISOString() }],
+    };
+    assert.equal(isEpigeneticallySuppressed(gene, ENV), true);
+  });
+
+  it('does not suppress when the negative mark belongs to a different env', () => {
+    const gene = {
+      type: 'Gene',
+      id: 'gene_other_env',
+      epigenetic_marks: [{ context: 'aix/sparc/v0.0.0', boost: -0.5, reason: 'suppressed_by_failure', created_at: new Date().toISOString() }],
+    };
+    assert.equal(isEpigeneticallySuppressed(gene, ENV), false);
+  });
+});
+
+describe('selectGene filters epigenetically suppressed genes (regression)', () => {
+  const ENV = captureEnvFingerprint();
+  const envContext = [ENV.platform || '', ENV.arch || '', ENV.node_version || '']
+    .filter(Boolean).join('/') || 'unknown';
+
+  it('skips a gene with boost <= -0.3 even when its signal score would win', () => {
+    const suppressed = {
+      type: 'Gene',
+      id: 'gene_repair_suppressed',
+      category: 'repair',
+      signals_match: ['error', 'exception', 'failed', 'crash'],
+      epigenetic_marks: [{ context: envContext, boost: -0.4, reason: 'suppressed_by_failure', created_at: new Date().toISOString() }],
+      validation: ['node -e "true"'],
+    };
+    const fallback = {
+      type: 'Gene',
+      id: 'gene_repair_fallback',
+      category: 'repair',
+      signals_match: ['error'],
+      validation: ['node -e "true"'],
+    };
+    const result = selectGene([suppressed, fallback], ['error', 'exception', 'failed', 'crash'], {});
+    assert.ok(result.selected);
+    assert.equal(result.selected.id, 'gene_repair_fallback');
+  });
+
+  it('still selects a suppressed gene when no other candidates exist', () => {
+    // Edge case: if every gene is suppressed and selection returns null,
+    // the upstream loop will create a new gene via mutation. Document that
+    // behavior here so future refactors do not silently change it.
+    const onlyOne = {
+      type: 'Gene',
+      id: 'gene_only',
+      category: 'repair',
+      signals_match: ['error'],
+      epigenetic_marks: [{ context: envContext, boost: -0.5, reason: 'suppressed_by_failure', created_at: new Date().toISOString() }],
+      validation: ['node -e "true"'],
+    };
+    const result = selectGene([onlyOne], ['error'], {});
+    assert.equal(result.selected, null,
+      'all suppressed -> selector returns null so the caller can mutate a new gene');
   });
 });

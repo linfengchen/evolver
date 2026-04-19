@@ -47,6 +47,19 @@ const MAX_REGEX_PATTERN_LEN = 1024;
 // --- Evolution Loop ---
 
 const REPAIR_LOOP_THRESHOLD = envInt('EVOLVER_REPAIR_LOOP_THRESHOLD', 3);
+
+// --- Gene Suppression (saturated / repeatedly failing genes) ---
+// These thresholds control when a Gene is forcibly excluded from selection
+// regardless of drift state. Without this, a Gene that fails repeatedly can
+// trigger plateau detection -> drift mode -> the legacy ban skip path,
+// resulting in the same failed Gene being re-selected forever.
+//
+// GENE_BAN_PER_KEY_ATTEMPTS:    minimum attempts on the same signal key
+// GENE_BAN_BEST_THRESHOLD:      best success rate at or below which the Gene is banned
+// GENE_EPIGENETIC_HARD_BOOST:   epigenetic boost at or below which the Gene is hard-suppressed
+const GENE_BAN_PER_KEY_ATTEMPTS = envInt('EVOLVER_GENE_BAN_PER_KEY_ATTEMPTS', 4);
+const GENE_BAN_BEST_THRESHOLD = envFloat('EVOLVER_GENE_BAN_BEST_THRESHOLD', 0.15);
+const GENE_EPIGENETIC_HARD_BOOST = envFloat('EVOLVER_GENE_EPIGENETIC_HARD_BOOST', -0.3);
 const SESSION_ARCHIVE_TRIGGER = envInt('EVOLVER_SESSION_ARCHIVE_TRIGGER', 100);
 const SESSION_ARCHIVE_KEEP = envInt('EVOLVER_SESSION_ARCHIVE_KEEP', 50);
 const MEMORY_FRAGMENT_MAX_CHARS = envInt('EVOLVER_MEMORY_FRAGMENT_MAX_CHARS', 50000);
@@ -123,6 +136,9 @@ module.exports = {
   MAX_REGEX_PATTERN_LEN,
   // Evolution
   REPAIR_LOOP_THRESHOLD,
+  GENE_BAN_PER_KEY_ATTEMPTS,
+  GENE_BAN_BEST_THRESHOLD,
+  GENE_EPIGENETIC_HARD_BOOST,
   SESSION_ARCHIVE_TRIGGER,
   SESSION_ARCHIVE_KEEP,
   MEMORY_FRAGMENT_MAX_CHARS,
