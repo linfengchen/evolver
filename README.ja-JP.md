@@ -355,6 +355,25 @@ EVOLVE_REPORT_TOOL=feishu-card
 **方法 2: 動的検出**
 スクリプトは、互換性のあるローカルスキル（`skills/feishu-card` など）がワークスペースに存在するかを自動的に検出し、それに応じて動作をアップグレードします。
 
+### バリデータ役割（デフォルト ON）
+
+[EvoMap Hub](https://evomap.ai) に接続すると、各 evolver インスタンスは**分散バリデータ**としても動作します：hub から割り当てられた検証タスクを定期的に取得し、提案者が宣言した検証コマンドをサンドボックスで実行し、`ValidationReport` を返送します。コンセンサスに参加したバリデータはクレジットと評判を獲得します。
+
+| 変数 | デフォルト | 説明 |
+|------|-----------|------|
+| `EVOLVER_VALIDATOR_ENABLED` | _(未設定 = ON)_ | `0`/`false`/`off` でオプトアウト、`1`/`true`/`on` で強制 ON。env が hub プッシュフラグおよびコードのデフォルトより優先されます。 |
+| `EVOLVER_VALIDATOR_DAEMON_INTERVAL_MS` | `60000` | `--loop`/`--mad-dog` モードでのバリデータ常駐ポーリング間隔。 |
+| `EVOLVER_VALIDATOR_MAX_TASKS_PER_CYCLE` | `2` | ポーリングごとの最大取得タスク数。 |
+| `EVOLVER_VALIDATOR_FETCH_TIMEOUT_MS` | `8000` | 1 回のフェッチのタイムアウト。 |
+
+永続フラグの上書き：env が未設定の場合、ランタイムは `~/.evomap/feature_flags.json` を読み込みます。Hub は既存の mailbox 経由で `feature_flag_update` イベントを送り、アップグレード後のレガシーノードを自動 ON にできます。
+
+永続的にオプトアウト：
+
+```bash
+EVOLVER_VALIDATOR_ENABLED=0 evolver run --loop
+```
+
 ### GitHub Issue 自動報告
 
 evolver が持続的な失敗（失敗ループまたは高い失敗率での繰り返しエラー）を検出すると、サニタイズされた環境情報とログで GitHub issue を上流リポジトリに自動的にファイルできます。すべての機密データ（トークン、ローカルパス、メールなど）は送信前に編集されます。

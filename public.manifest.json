@@ -14,7 +14,6 @@
     "SKILL.md",
     "CONTRIBUTING.md",
     "LICENSE",
-    "SECURITY.md",
     "src/**",
     "scripts/*.js",
     "test/*.test.js",

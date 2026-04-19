@@ -13,14 +13,25 @@ const { getNodeId, buildHubHeaders, getHubUrl } = require('../a2aProtocol');
 const { runInSandbox } = require('./sandboxExecutor');
 const { buildReportPayload, submitReport } = require('./reporter');
 const { ensureValidatorStake } = require('./stakeBootstrap');
+const { readFeatureFlag } = require('../featureFlags');
 
 const FETCH_TIMEOUT_MS = Number(process.env.EVOLVER_VALIDATOR_FETCH_TIMEOUT_MS) || 8_000;
 const HUB_URL_FALLBACK = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
 const MAX_TASKS_PER_CYCLE = Math.max(1, Number(process.env.EVOLVER_VALIDATOR_MAX_TASKS_PER_CYCLE) || 2);
 
+// Three-tier resolution:
+//   1. Local env (highest priority - user escape hatch). Both ON and OFF are honored.
+//   2. Persisted feature flag from disk (set by hub mailbox).
+//   3. Code default: ON (validator role is opt-out as of v1.69.0).
 function isValidatorEnabled() {
   const raw = String(process.env.EVOLVER_VALIDATOR_ENABLED || '').toLowerCase().trim();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'off') return false;
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  try {
+    const flag = readFeatureFlag('validator_enabled');
+    if (typeof flag === 'boolean') return flag;
+  } catch (_) {}
+  return true;
 }
 
 function resolveHubUrl() {
@@ -162,9 +173,84 @@ async function runValidatorCycle(opts) {
   return { tasks: tasks.length, processed: outcomes.length, outcomes };
 }
 
+// --- Background daemon ---
+//
+// In long-running modes (--loop / --mad-dog) the validator role used to share
+// the main evolve loop and was suppressed by idle gating (skipHubCalls) when
+// the host was saturated. The daemon runs independently on its own timer so
+// that validator participation does not depend on the agent's foreground load.
+
+function _envIntDefault(key, fallback) {
+  const raw = process.env[key];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+const DAEMON_INTERVAL_MS = Math.max(15000, _envIntDefault('EVOLVER_VALIDATOR_DAEMON_INTERVAL_MS', 60000));
+const DAEMON_FIRST_DELAY_MS = Math.max(0, _envIntDefault('EVOLVER_VALIDATOR_DAEMON_FIRST_DELAY_MS', 30000));
+
+let _daemonTimer = null;
+let _daemonRunning = false;
+let _daemonInflight = false;
+let _daemonStats = { ticks: 0, processed: 0, lastError: null, lastRunAt: 0 };
+
+async function _daemonTick() {
+  if (_daemonInflight) return;
+  _daemonInflight = true;
+  try {
+    if (!isValidatorEnabled()) {
+      _daemonStats.ticks += 1;
+      return;
+    }
+    const out = await runValidatorCycle({});
+    _daemonStats.ticks += 1;
+    _daemonStats.lastRunAt = Date.now();
+    if (out && typeof out.processed === 'number') {
+      _daemonStats.processed += out.processed;
+      if (out.processed > 0) {
+        console.log('[ValidatorDaemon] processed ' + out.processed + '/' + (out.tasks || 0) + ' task(s).');
+      }
+    }
+  } catch (err) {
+    _daemonStats.lastError = err && err.message || String(err);
+    console.warn('[ValidatorDaemon] tick failed (non-fatal): ' + _daemonStats.lastError);
+  } finally {
+    _daemonInflight = false;
+    if (_daemonRunning) {
+      _daemonTimer = setTimeout(_daemonTick, DAEMON_INTERVAL_MS);
+    }
+  }
+}
+
+/**
+ * Start an independent validator daemon. Safe to call once at process boot
+ * from --loop / --mad-dog modes. No-op if already running.
+ */
+function startValidatorDaemon() {
+  if (_daemonRunning) return false;
+  _daemonRunning = true;
+  _daemonTimer = setTimeout(_daemonTick, DAEMON_FIRST_DELAY_MS);
+  return true;
+}
+
+function stopValidatorDaemon() {
+  _daemonRunning = false;
+  if (_daemonTimer) {
+    clearTimeout(_daemonTimer);
+    _daemonTimer = null;
+  }
+}
+
+function getValidatorDaemonStats() {
+  return Object.assign({ running: _daemonRunning, intervalMs: DAEMON_INTERVAL_MS }, _daemonStats);
+}
+
 module.exports = {
   runValidatorCycle,
   fetchValidationTasks,
   validateOneTask,
   isValidatorEnabled,
+  startValidatorDaemon,
+  stopValidatorDaemon,
+  getValidatorDaemonStats,
 };

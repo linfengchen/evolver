@@ -144,8 +144,8 @@ describe('validator.runValidatorCycle', function () {
     Object.assign(process.env, originalEnv);
   });
 
-  it('returns skipped:"disabled" when EVOLVER_VALIDATOR_ENABLED is off', async function () {
-    delete process.env.EVOLVER_VALIDATOR_ENABLED;
+  it('returns skipped:"disabled" when EVOLVER_VALIDATOR_ENABLED=0', async function () {
+    process.env.EVOLVER_VALIDATOR_ENABLED = '0';
     const out = await validatorIndex.runValidatorCycle({});
     assert.equal(out.skipped, 'disabled');
   });

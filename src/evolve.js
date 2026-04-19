@@ -1749,7 +1749,33 @@ async function run() {
         emergent_exploration_started:  ['swarm', 'emergent', 'exploration'],
         emergent_convergence_detected: ['swarm', 'emergent', 'convergence'],
       };
+      // Configuration handlers: events that mutate local persistent state
+      // rather than inject LLM signals. Whitelisted to a small surface so
+      // a compromised hub can only flip a known set of flags.
+      const FEATURE_FLAG_WHITELIST = new Set(['validator_enabled']);
+      const HUB_EVENT_HANDLERS = {
+        feature_flag_update: function (ev) {
+          try {
+            const p = ev && ev.payload || {};
+            const key = typeof p.key === 'string' ? p.key : null;
+            const value = p.value;
+            if (!key || !FEATURE_FLAG_WHITELIST.has(key)) return;
+            if (typeof value !== 'boolean') return;
+            const { writeFeatureFlag } = require('./gep/featureFlags');
+            const ok = writeFeatureFlag(key, value, 'hub_mailbox');
+            console.log('[FeatureFlags] hub set ' + key + '=' + value + (ok ? '' : ' (persist failed)'));
+          } catch (e) {
+            console.warn('[FeatureFlags] handler failed (non-fatal):', e && e.message || e);
+          }
+        },
+      };
+
       for (const ev of hubEvents) {
+        const handler = HUB_EVENT_HANDLERS[ev.type];
+        if (handler) {
+          handler(ev);
+          continue;
+        }
         const evSignals = HUB_EVENT_SIGNALS[ev.type] || ['hub_event'];
         for (const sig of evSignals) {
           if (!signals.includes(sig)) signals.unshift(sig);

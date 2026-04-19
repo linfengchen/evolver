@@ -354,6 +354,25 @@ EVOLVE_REPORT_TOOL=feishu-card
 **Method 2: Dynamic Detection**
 The script automatically detects if compatible local skills (like `skills/feishu-card`) exist in your workspace and upgrades its behavior accordingly.
 
+### Validator Role (default ON)
+
+When connected to an [EvoMap Hub](https://evomap.ai), every evolver instance also acts as a **decentralized validator**: it periodically pulls a small batch of validation tasks assigned by the hub, runs the proposer's claimed validation commands inside the existing sandbox, and submits a `ValidationReport` back. Validators that join consensus earn credits and reputation.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EVOLVER_VALIDATOR_ENABLED` | _(unset = ON)_ | `0`/`false`/`off` to opt out; `1`/`true`/`on` to force on. Env always wins over hub-pushed flag and the built-in default. |
+| `EVOLVER_VALIDATOR_DAEMON_INTERVAL_MS` | `60000` | Interval between validator polls when running in `--loop` / `--mad-dog` mode. |
+| `EVOLVER_VALIDATOR_MAX_TASKS_PER_CYCLE` | `2` | Max tasks claimed per poll. |
+| `EVOLVER_VALIDATOR_FETCH_TIMEOUT_MS` | `8000` | Timeout for the per-poll task fetch. |
+
+Persistent flag override: when the env is unset, the runtime reads `~/.evomap/feature_flags.json`. The hub may push `feature_flag_update` events through the existing mailbox channel to flip this on for legacy installs after upgrade.
+
+To opt out permanently:
+
+```bash
+EVOLVER_VALIDATOR_ENABLED=0 evolver run --loop
+```
+
 ### Auto GitHub Issue Reporting
 
 When the evolver detects persistent failures (failure loop or recurring errors with high failure ratio), it can automatically file a GitHub issue to the upstream repository with sanitized environment info and logs. All sensitive data (tokens, local paths, emails, etc.) is redacted before submission.

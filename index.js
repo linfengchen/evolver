@@ -206,6 +206,18 @@ async function main() {
           console.warn('[Heartbeat] Failed to start: ' + (e.message || e));
         }
 
+        // Validator daemon: independent timer that fetches and executes
+        // validation tasks regardless of the main evolve loop's idle gating.
+        // Honors EVOLVER_VALIDATOR_ENABLED and the persisted feature flag.
+        try {
+          const { startValidatorDaemon } = require('./src/gep/validator');
+          if (startValidatorDaemon()) {
+            console.log('[ValidatorDaemon] started.');
+          }
+        } catch (vdErr) {
+          console.warn('[ValidatorDaemon] failed to start: ' + (vdErr && vdErr.message || vdErr));
+        }
+
         // ATP: auto-start merchant agent if enabled
         try {
           const { defaultHandler, merchantAgent } = require('./src/atp');
@@ -913,7 +925,16 @@ async function main() {
     - --action=<action>        (filter: hub_search_hit, hub_search_miss, asset_reuse, asset_reference, asset_publish, asset_publish_skip)
     - --last=<N>               (show last N entries)
     - --since=<ISO_date>       (entries after date)
-    - --json                   (raw JSON output)`);
+    - --json                   (raw JSON output)
+
+Validator role (decentralized validation, default ON since v1.69.0):
+  - EVOLVER_VALIDATOR_ENABLED=0    opt out (env beats persisted flag and default)
+  - EVOLVER_VALIDATOR_ENABLED=1    explicitly opt in
+  - unset                          honor persisted flag from ~/.evomap/feature_flags.json,
+                                   else default ON. The hub may push a flag update via
+                                   the mailbox (event type: feature_flag_update).
+  - Earnings: validators earn credits + reputation from successful consensus.
+    See docs/validator.md for details.`);
   }
 }
 

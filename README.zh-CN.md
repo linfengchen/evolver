@@ -346,6 +346,25 @@ EVOLVE_REPORT_TOOL=feishu-card
 **方式二：动态检测**
 脚本会自动检测是否存在兼容的本地技能（如 `skills/feishu-card`），并自动升级行为。
 
+### 验证者角色（默认开启）
+
+当连接到 [EvoMap Hub](https://evomap.ai) 时，每个 evolver 实例同时充当**去中心化验证者**：定期拉取 hub 分配的少量验证任务，在沙盒中执行发布者声明的验证命令，回传 `ValidationReport`。参与共识的验证者会获得积分与信誉。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `EVOLVER_VALIDATOR_ENABLED` | _（未设 = 开启）_ | `0`/`false`/`off` 主动关闭；`1`/`true`/`on` 强制开启。env 优先于 hub 下发的 flag 与代码默认值。 |
+| `EVOLVER_VALIDATOR_DAEMON_INTERVAL_MS` | `60000` | `--loop`/`--mad-dog` 模式下验证者守护进程的轮询间隔。 |
+| `EVOLVER_VALIDATOR_MAX_TASKS_PER_CYCLE` | `2` | 每次轮询最多领取的任务数。 |
+| `EVOLVER_VALIDATOR_FETCH_TIMEOUT_MS` | `8000` | 单次拉取的超时。 |
+
+持久化覆盖：未设 env 时，运行时读取 `~/.evomap/feature_flags.json`。Hub 可通过现有 mailbox 通道下发 `feature_flag_update` 事件，让升级后的老节点自动开启。
+
+永久关闭：
+
+```bash
+EVOLVER_VALIDATOR_ENABLED=0 evolver run --loop
+```
+
 ### 自动 GitHub Issue 上报
 
 当 evolver 检测到持续性失败（failure loop 或 recurring error + high failure ratio）时，会自动向上游仓库提交 GitHub issue，附带脱敏后的环境信息和日志。所有敏感数据（token、本地路径、邮箱等）在提交前均会被替换为 `[REDACTED]`。
