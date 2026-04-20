@@ -534,6 +534,13 @@ function sendHelloToHub() {
         console.log('[Hello] No local secret after hello; auto-rotating...');
         return _sendHelloWithRotate();
       }
+      try {
+        const { maybePrintClaimNudge } = require('./claimNudge');
+        const payload = (data && data.payload) || data || {};
+        maybePrintClaimNudge(payload);
+      } catch (_) {
+        // claim nudge is best-effort; never break hello on print failure
+      }
       return { ok: true, response: data };
     })
     .catch(function (err) { return { ok: false, error: err.message }; });
