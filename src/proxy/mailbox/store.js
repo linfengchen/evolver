@@ -8,6 +8,34 @@ const DEFAULT_CHANNEL = 'evomap-hub';
 const SCHEMA_VERSION = 1;
 const PROXY_PROTOCOL_VERSION = '0.1.0';
 
+// Merge `fields` into `target` while stripping keys that can mutate the
+// prototype chain. Mailbox rows are persisted as JSONL and rebuilt on
+// startup; without this filter a crafted messages.jsonl line containing
+// __proto__/constructor/prototype could pollute Object.prototype during
+// _rebuildIndex (see GHSA-2cjr-5v3h-v2w4).
+function safeAssign(target, fields) {
+  if (!fields || typeof fields !== 'object') return target;
+  const keys = Object.keys(fields);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    target[k] = fields[k];
+  }
+  return target;
+}
+
+function sanitizeRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = {};
+  safeAssign(out, row);
+  if (out.fields && typeof out.fields === 'object') {
+    const cleanFields = {};
+    safeAssign(cleanFields, out.fields);
+    out.fields = cleanFields;
+  }
+  return out;
+}
+
 // --- UUID v7 (RFC 9562) ---
 // Bits 0-47: unix_ts_ms, Bits 48-51: ver=0b0111, Bits 52-63: rand_a,
 // Bits 64-65: var=0b10, Bits 66-127: rand_b
@@ -119,10 +147,11 @@ class MailboxStore {
 
     const TERMINAL = new Set(['synced', 'delivered', 'failed', 'rejected']);
     const rows = readLines(this._messagesFile);
-    for (const row of rows) {
+    for (const rawRow of rows) {
+      const row = sanitizeRow(rawRow);
       if (row._op === 'update') {
         const existing = this._messages.get(row.id);
-        if (existing) Object.assign(existing, row.fields);
+        if (existing) safeAssign(existing, row.fields);
         continue;
       }
       this._messages.set(row.id, row);
@@ -144,7 +173,7 @@ class MailboxStore {
   _appendUpdate(id, fields) {
     appendLine(this._messagesFile, { _op: 'update', id, fields });
     const existing = this._messages.get(id);
-    if (existing) Object.assign(existing, fields);
+    if (existing) safeAssign(existing, fields);
   }
 
   _evictFromIndex(id) {

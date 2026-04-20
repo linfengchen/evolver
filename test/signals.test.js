@@ -477,3 +477,19 @@ describe('extractSignals -- multi-strategy integration', () => {
     }
   });
 });
+
+describe('signals.js source hardening (GHSA-j5w5-568x-rq53)', () => {
+  it('does not use execSync with string-concatenated shell commands', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'gep', 'signals.js'), 'utf8');
+    // The vulnerability stemmed from execSync(curlCmd) where curlCmd was built
+    // via string concat that interpolated user-derived data. The fix uses
+    // execFileSync with an argv array so no shell is involved. Guard against
+    // anyone re-introducing execSync for curl.
+    assert.ok(!/execSync\s*\(\s*curlCmd/.test(src), 'execSync(curlCmd) is forbidden (command injection)');
+    assert.ok(!/execSync\([^)]*['\"]curl /.test(src), 'execSync with inline curl string is forbidden');
+    // execFileSync is the mandated replacement.
+    assert.ok(/execFileSync/.test(src), 'signals.js must use execFileSync instead of execSync for HTTP');
+  });
+});

@@ -1,6 +1,12 @@
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
+function stripAnsi(str) {
+  // Strip CSI sequences so child stdout stays deterministic regardless of
+  // the parent shell's FORCE_COLOR state (see issue #430 and PRs #444/#445).
+  return String(str).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
 const savedEnv = {};
 const envKeys = ['EVOLVE_BRIDGE', 'OPENCLAW_WORKSPACE'];
 
@@ -95,15 +101,21 @@ describe('determineBridgeEnabled -- black-box via child_process', () => {
       const { determineBridgeEnabled } = require('./src/evolve');
       console.log(determineBridgeEnabled());
     `;
-    const cleanEnv = { ...process.env };
+    const cleanEnv = {
+      ...process.env,
+      NODE_DISABLE_COLORS: '1',
+      NO_COLOR: '1',
+      FORCE_COLOR: '0',
+    };
     delete cleanEnv.EVOLVE_BRIDGE;
     delete cleanEnv.OPENCLAW_WORKSPACE;
-    return execFileSync(process.execPath, ['-e', script], {
+    const raw = execFileSync(process.execPath, ['-e', script], {
       cwd: require('path').resolve(__dirname, '..'),
       encoding: 'utf8',
       timeout: 10000,
       env: cleanEnv,
-    }).trim();
+    });
+    return stripAnsi(raw).trim();
   }
 
   it('standalone mode: bridge off', () => {

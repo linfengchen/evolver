@@ -787,9 +787,30 @@ async function main() {
       const data = await resp.json();
       const outFlag = args.find(a => typeof a === 'string' && a.startsWith('--out='));
       const safeId = String(data.skill_id || skillId).replace(/[^a-zA-Z0-9_\-\.]/g, '_');
-      const outDir = outFlag
-        ? outFlag.slice('--out='.length)
-        : path.join('.', 'skills', safeId);
+      let outDir;
+      if (outFlag) {
+        const rawOut = outFlag.slice('--out='.length);
+        if (!rawOut || rawOut.trim() === '') {
+          console.error('[fetch] --out= value cannot be empty');
+          process.exit(1);
+        }
+        const resolvedOut = path.resolve(process.cwd(), rawOut);
+        const cwd = path.resolve(process.cwd());
+        const rel = path.relative(cwd, resolvedOut);
+        // Reject paths that escape the current working directory or are
+        // absolute on a different volume/root. This prevents --out=../../etc
+        // from writing outside the project tree.
+        if (rel.startsWith('..') || path.isAbsolute(rel)) {
+          console.error('[fetch] --out= must resolve to a path inside the current working directory');
+          console.error('  Provided:  ' + rawOut);
+          console.error('  Resolved:  ' + resolvedOut);
+          console.error('  Workdir:   ' + cwd);
+          process.exit(1);
+        }
+        outDir = resolvedOut;
+      } else {
+        outDir = path.join('.', 'skills', safeId);
+      }
 
       if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 

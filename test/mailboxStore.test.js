@@ -360,4 +360,69 @@ describe('MailboxStore', () => {
       assert.ok(SCHEMA_VERSION >= 1);
     });
   });
+
+  describe('prototype pollution hardening (GHSA-2cjr-5v3h-v2w4)', () => {
+    it('strips __proto__ from update rows when rebuilding from JSONL', () => {
+      const dir = tmpDataDir();
+      fs.mkdirSync(dir, { recursive: true });
+      const msgFile = path.join(dir, 'messages.jsonl');
+      fs.writeFileSync(
+        msgFile,
+        JSON.stringify({
+          id: 'msg-1',
+          channel: DEFAULT_CHANNEL,
+          direction: 'inbound',
+          type: 'test',
+          status: 'pending',
+          payload: {},
+          priority: 'normal',
+          created_at: Date.now(),
+        }) + '\n' +
+        JSON.stringify({
+          _op: 'update',
+          id: 'msg-1',
+          fields: {
+            __proto__: { polluted: true, isAdmin: true },
+            status: 'synced',
+          },
+        }) + '\n',
+        'utf8'
+      );
+
+      const s = new MailboxStore(dir);
+      const probe = {};
+      assert.equal(probe.polluted, undefined, 'Object.prototype must not be polluted');
+      assert.equal(probe.isAdmin, undefined, 'Object.prototype must not be polluted');
+      s.close();
+      try { fs.rmSync(dir, { recursive: true }); } catch {}
+    });
+
+    it('strips constructor/prototype from raw message rows', () => {
+      const dir = tmpDataDir();
+      fs.mkdirSync(dir, { recursive: true });
+      const msgFile = path.join(dir, 'messages.jsonl');
+      fs.writeFileSync(
+        msgFile,
+        JSON.stringify({
+          id: 'msg-1',
+          channel: DEFAULT_CHANNEL,
+          direction: 'inbound',
+          type: 'test',
+          status: 'pending',
+          payload: {},
+          priority: 'normal',
+          created_at: Date.now(),
+          constructor: { prototype: { evil: true } },
+          prototype: { evil: true },
+        }) + '\n',
+        'utf8'
+      );
+
+      const s = new MailboxStore(dir);
+      const probe = {};
+      assert.equal(probe.evil, undefined, 'Object.prototype must not be polluted');
+      s.close();
+      try { fs.rmSync(dir, { recursive: true }); } catch {}
+    });
+  });
 });
