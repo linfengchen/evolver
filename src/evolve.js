@@ -1094,29 +1094,54 @@ function sleepMs(ms) {
   return new Promise(resolve => setTimeout(resolve, n));
 }
 
+// Minimum assumed CPU count when os.cpus() returns an empty array. This can
+// happen on Android/Termux where the Node.js os module cannot read
+// /proc/cpuinfo reliably (issue #446). Without a floor, default load max
+// collapses to 0.0 and every cycle is permanently backed off.
+const MIN_ASSUMED_CPU_COUNT = 4;
+
+function detectCpuCount() {
+  try {
+    const list = os.cpus();
+    if (Array.isArray(list) && list.length > 0) return list.length;
+  } catch (_) {}
+  return MIN_ASSUMED_CPU_COUNT;
+}
+
 // Check system load average via os.loadavg().
-// Returns { load1m, load5m, load15m }. Used for load-aware throttling.
+// Returns { load1m, load5m, load15m }. On platforms where loadavg is not
+// meaningful (Windows reports all zeros, some Android/Termux builds report
+// process-counter values much larger than the CPU budget), the raw values
+// are clamped to at most 2x the assumed CPU count so a single misreported
+// sample cannot force a permanent backoff. See issue #446.
 function getSystemLoad() {
   try {
     const loadavg = os.loadavg();
-    return { load1m: loadavg[0], load5m: loadavg[1], load15m: loadavg[2] };
+    const cores = detectCpuCount();
+    const cap = Math.max(1, cores) * 2;
+    return {
+      load1m: Math.min(loadavg[0] || 0, cap),
+      load5m: Math.min(loadavg[1] || 0, cap),
+      load15m: Math.min(loadavg[2] || 0, cap),
+    };
   } catch (e) {
     return { load1m: 0, load5m: 0, load15m: 0 };
   }
 }
 
-// Calculate intelligent default load threshold based on CPU cores
+// Calculate intelligent default load threshold based on CPU cores.
 // Rule of thumb:
 // - Single-core: 0.8-1.0 (use 0.9)
 // - Multi-core: cores x 0.8-1.0 (use 0.9)
 // - Production: reserve 20% headroom for burst traffic
+// Uses detectCpuCount() so Android/Termux (where os.cpus() may return []) still
+// gets a usable default instead of 0.0 (issue #446).
 function getDefaultLoadMax() {
-  const cpuCount = os.cpus().length;
-  if (cpuCount === 1) {
+  const cpuCount = detectCpuCount();
+  if (cpuCount <= 1) {
     return 0.9;
-  } else {
-    return cpuCount * 0.9;
   }
+  return cpuCount * 0.9;
 }
 
 // Check how many agent sessions are actively being processed (modified in the last N minutes).
@@ -1186,8 +1211,8 @@ async function runPreflightChecks(bridgeEnabled, loopMode) {
   const LOAD_MAX = parseFloat(process.env.EVOLVE_LOAD_MAX || String(getDefaultLoadMax()));
   const sysLoad = getSystemLoad();
   if (sysLoad.load1m > LOAD_MAX) {
-    console.log(`[Evolver] System load ${sysLoad.load1m.toFixed(2)} exceeds max ${LOAD_MAX.toFixed(1)} (auto-calculated for ${os.cpus().length} cores). Backing off ${QUEUE_BACKOFF_MS}ms.`);
-    writeDormantHypothesis({ backoff_reason: 'system_load_exceeded', system_load: { load1m: sysLoad.load1m, load5m: sysLoad.load5m, load15m: sysLoad.load15m }, load_max: LOAD_MAX, cpu_cores: os.cpus().length });
+    console.log(`[Evolver] System load ${sysLoad.load1m.toFixed(2)} exceeds max ${LOAD_MAX.toFixed(1)} (auto-calculated for ${detectCpuCount()} cores). Backing off ${QUEUE_BACKOFF_MS}ms.`);
+    writeDormantHypothesis({ backoff_reason: 'system_load_exceeded', system_load: { load1m: sysLoad.load1m, load5m: sysLoad.load5m, load15m: sysLoad.load15m }, load_max: LOAD_MAX, cpu_cores: detectCpuCount() });
     await sleepMs(QUEUE_BACKOFF_MS);
     return { abort: true };
   }
@@ -2567,5 +2592,5 @@ ${sharedKnowledgeContext}
   }
 }
 
-module.exports = { run, computeAdaptiveStrategyPolicy, shouldSkipHubCalls, verbose, determineBridgeEnabled, formatSessionLog, formatCursorTranscript };
+module.exports = { run, computeAdaptiveStrategyPolicy, shouldSkipHubCalls, verbose, determineBridgeEnabled, formatSessionLog, formatCursorTranscript, detectCpuCount, getDefaultLoadMax, getSystemLoad };
 
