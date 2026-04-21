@@ -13,9 +13,21 @@
 //     credits need to accrue from validation/task rewards; we log the gap so
 //     the user can also top up or claim the node manually
 //   - Stake-amount-min (400) / invalid request: stop retrying this session
+//
+// Persistence (v1.69.11+):
+//   State (nextAttemptAt / failure counters / lastSuccessAt) is persisted to
+//   ~/.evomap/validator_stake_state.json after every change so short-lived
+//   `evolver` invocations don't hammer the Hub's stake endpoint once the
+//   in-memory backoff window is set. `disabledUntilRestart` is NOT persisted
+//   -- it is intentionally session-scoped so that a process restart lets the
+//   node retry after an operator fix. Disk I/O is best-effort; failures
+//   silently fall back to pure in-memory state.
 'use strict';
 
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { buildHubHeaders, getHubUrl, getNodeId } = require('../a2aProtocol');
 const { resolveHubUrl: resolveDefaultHubUrl } = require('../../config');
 
@@ -61,6 +73,8 @@ function logStakeEvent(event, data) {
 
 // Retry state machine: remembers last outcome classification so we can pick
 // the right backoff bucket.
+//
+// `disabledUntilRestart` is intentionally session-scoped (see _persistState).
 let _state = {
   nextAttemptAt: 0,
   transientFailures: 0,
@@ -68,6 +82,75 @@ let _state = {
   lastSuccessAt: 0,
   disabledUntilRestart: false,
 };
+
+// -- Disk persistence (v1.69.11+) ---------------------------------------
+//
+// Goal: prevent short-lived `evolver` commands from spamming the Hub's
+// `/a2a/validator/stake` endpoint. Each process used to start with an
+// empty _state and fire a new stake request, triggering repeated
+// "already active" responses + rate-limit suppressions on the Hub.
+// We now carry the retry clock between process invocations.
+
+const STATE_FILE = path.join(
+  process.env.EVOLVER_HOME || path.join(os.homedir(), '.evomap'),
+  'validator_stake_state.json',
+);
+
+let _stateLoaded = false;
+
+function _loadStateFromDisk() {
+  if (_stateLoaded) return;
+  _stateLoaded = true;
+  try {
+    if (!fs.existsSync(STATE_FILE)) return;
+    const raw = fs.readFileSync(STATE_FILE, 'utf8');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    const nextAttemptAt = Number(parsed.nextAttemptAt) || 0;
+    const transientFailures = Number(parsed.transientFailures) || 0;
+    const fundsFailures = Number(parsed.fundsFailures) || 0;
+    const lastSuccessAt = Number(parsed.lastSuccessAt) || 0;
+    // Defensive clamp: a clock change or corrupted file could push
+    // nextAttemptAt arbitrarily far into the future. Cap it at now +
+    // the longest backoff step to avoid permanently silencing stake
+    // attempts on this host.
+    const maxHorizonMs = 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    const boundedNext = nextAttemptAt > nowMs + maxHorizonMs
+      ? nowMs + maxHorizonMs
+      : nextAttemptAt;
+    _state.nextAttemptAt = boundedNext;
+    _state.transientFailures = transientFailures;
+    _state.fundsFailures = fundsFailures;
+    _state.lastSuccessAt = lastSuccessAt;
+    // disabledUntilRestart is intentionally NOT persisted: we want the
+    // next process start to re-try once, so operator-driven fixes (hub
+    // upgrade, client downgrade/reconfig) clear the flag naturally.
+  } catch (_) {
+    // best-effort: fall back to default _state
+  }
+}
+
+function _persistState() {
+  try {
+    const dir = path.dirname(STATE_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    const snapshot = {
+      nextAttemptAt: _state.nextAttemptAt,
+      transientFailures: _state.transientFailures,
+      fundsFailures: _state.fundsFailures,
+      lastSuccessAt: _state.lastSuccessAt,
+      // disabledUntilRestart intentionally omitted
+      savedAt: Date.now(),
+    };
+    fs.writeFileSync(STATE_FILE, JSON.stringify(snapshot), { encoding: 'utf8', mode: 0o600 });
+  } catch (_) {
+    // best-effort: ignore disk failures (e.g. read-only FS in sandbox)
+  }
+}
 
 function resetBackoff() {
   _state.transientFailures = 0;
@@ -115,6 +198,8 @@ async function ensureValidatorStake(opts) {
   const options = opts || {};
   const now = Date.now();
 
+  _loadStateFromDisk();
+
   if (_state.disabledUntilRestart && !options.force) {
     return { ok: false, skipped: 'disabled_until_restart' };
   }
@@ -126,6 +211,7 @@ async function ensureValidatorStake(opts) {
   const nodeId = getNodeId();
   if (!nodeId) {
     _state.nextAttemptAt = now + pickDelay('transient');
+    _persistState();
     return { ok: false, error: 'no_node_id' };
   }
 
@@ -161,6 +247,7 @@ async function ensureValidatorStake(opts) {
     clearTimeout(timer);
     _state.transientFailures += 1;
     _state.nextAttemptAt = now + pickDelay('transient');
+    _persistState();
     const msg = err && err.message ? err.message : String(err);
     logStakeEvent('failed_network', {
       node_id: nodeId,
@@ -177,6 +264,7 @@ async function ensureValidatorStake(opts) {
     resetBackoff();
     _state.lastSuccessAt = now;
     _state.nextAttemptAt = now + SUCCESS_RECHECK_MS;
+    _persistState();
     logStakeEvent('success', {
       node_id: nodeId,
       stake: parsed && parsed.stake ? parsed.stake : parsed,
@@ -188,6 +276,7 @@ async function ensureValidatorStake(opts) {
   if (kind === 'funds') {
     _state.fundsFailures += 1;
     _state.nextAttemptAt = now + pickDelay('funds');
+    _persistState();
     const short = parseShortfall(text);
     logStakeEvent('insufficient_credits', {
       node_id: nodeId,
@@ -214,6 +303,7 @@ async function ensureValidatorStake(opts) {
 
   _state.transientFailures += 1;
   _state.nextAttemptAt = now + pickDelay('transient');
+  _persistState();
   logStakeEvent('failed_transient', {
     node_id: nodeId,
     status: res.status,
@@ -224,7 +314,9 @@ async function ensureValidatorStake(opts) {
   return { ok: false, status: res.status, error: text.slice(0, 400), kind: 'transient' };
 }
 
-// Test-only reset hook.
+// Test-only reset hook: clears in-memory state, disk snapshot, and
+// the lazy-load latch so the next call re-reads from disk (or sees a
+// clean slate if the caller removed the file themselves).
 function _resetStateForTests() {
   _state = {
     nextAttemptAt: 0,
@@ -233,6 +325,8 @@ function _resetStateForTests() {
     lastSuccessAt: 0,
     disabledUntilRestart: false,
   };
+  _stateLoaded = false;
+  try { fs.unlinkSync(STATE_FILE); } catch (_) {}
 }
 
 function _getStateForTests() {
@@ -245,6 +339,9 @@ module.exports = {
   BACKOFF_STEPS_TRANSIENT_MS,
   BACKOFF_STEPS_FUNDS_MS,
   SUCCESS_RECHECK_MS,
+  STATE_FILE,
   _resetStateForTests,
   _getStateForTests,
+  _loadStateFromDisk,
+  _persistState,
 };

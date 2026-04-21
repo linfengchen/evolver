@@ -30,14 +30,24 @@ function mkRes(body) {
 
 describe('validator daemon', function () {
   const originalEnv = { ...process.env };
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  let tmpHome;
 
   beforeEach(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'validator-daemon-'));
+    process.env.EVOLVER_HOME = tmpHome;
     process.env.A2A_HUB_URL = 'http://hub.local';
     process.env.HUB_NODE_SECRET = 'secret';
     process.env.A2A_NODE_ID = 'node_test_daemon';
     // Tight intervals so tests run fast
     process.env.EVOLVER_VALIDATOR_DAEMON_INTERVAL_MS = '20000';
     process.env.EVOLVER_VALIDATOR_DAEMON_FIRST_DELAY_MS = '0';
+    try {
+      const sb = freshRequire('../src/gep/validator/stakeBootstrap');
+      if (sb && typeof sb._resetStateForTests === 'function') sb._resetStateForTests();
+    } catch (_) {}
   });
 
   afterEach(() => {
@@ -49,6 +59,9 @@ describe('validator daemon', function () {
       if (!(k in originalEnv)) delete process.env[k];
     }
     Object.assign(process.env, originalEnv);
+    if (tmpHome) {
+      try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch (_) {}
+    }
   });
 
   it('startValidatorDaemon is idempotent and reports stats', async function () {

@@ -156,16 +156,29 @@ describe('reporter.buildReportPayload', function () {
 
 describe('validator.runValidatorCycle', function () {
   const originalEnv = { ...process.env };
+  let tmpHome;
   beforeEach(() => {
+    // Isolate stakeBootstrap disk state per test so a successful stake
+    // in one test doesn't silence the stake attempt in the next.
+    tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'validator-cycle-'));
+    process.env.EVOLVER_HOME = tmpHome;
     process.env.A2A_HUB_URL = 'http://hub.local';
     process.env.HUB_NODE_SECRET = 'secret';
     process.env.A2A_NODE_ID = 'node_test_validator';
+    // Reset the module-level stake state so each test starts fresh.
+    try {
+      const sb = require('../src/gep/validator/stakeBootstrap');
+      if (sb && typeof sb._resetStateForTests === 'function') sb._resetStateForTests();
+    } catch (_) {}
   });
   afterEach(() => {
     for (const k of Object.keys(process.env)) {
       if (!(k in originalEnv)) delete process.env[k];
     }
     Object.assign(process.env, originalEnv);
+    if (tmpHome) {
+      try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch (_) {}
+    }
   });
 
   it('returns skipped:"disabled" when EVOLVER_VALIDATOR_ENABLED=0', async function () {
