@@ -97,6 +97,49 @@ function jsonResponse(body, status) {
     }
   }
 
+  // Case A: computeErrorKey is stable across (Nx) occurrence counts.
+  // Regression: the (Nx) prefix had been hashed verbatim, mutating the key
+  // every cycle and defeating recentIssueKeys dedup.
+  delete require.cache[MODULE_PATH];
+  const { computeErrorKey } = require('../src/gep/issueReporter');
+  const k3 = computeErrorKey(['recurring_errsig(3x):timeout on API', 'failure_loop_detected']);
+  const k4 = computeErrorKey(['recurring_errsig(4x):timeout on API', 'failure_loop_detected']);
+  const k5 = computeErrorKey(['recurring_errsig(5x):timeout on API', 'failure_loop_detected']);
+  assert.strictEqual(k3, k4, 'errorKey should be stable across (Nx) counts');
+  assert.strictEqual(k4, k5, 'errorKey should be stable across (Nx) counts');
+
+  // Case B: shouldReport enforces minStreak even when streak signal is absent.
+  // Regression: prior guard "streakCount > 0 && < minStreak" was a no-op when
+  // the consecutive_failure_streak_N signal was missing.
+  const { shouldReport } = require('../src/gep/issueReporter');
+  const gatedCfg = { repo: 'x/y', cooldownMs: 86400000, minStreak: 5 };
+  assert.strictEqual(
+    shouldReport(['failure_loop_detected', 'recurring_errsig(2x):foo'], gatedCfg),
+    false,
+    'minStreak gate must apply when streak signal is absent'
+  );
+  assert.strictEqual(
+    shouldReport(['failure_loop_detected', 'recurring_errsig(2x):foo', 'consecutive_failure_streak_10'], gatedCfg),
+    true,
+    'should pass when streak meets minStreak'
+  );
+
+  // Case C: findExistingIssue no longer matches unrelated titles via loose
+  // substring fallback. Prior `it.title.indexOf(titleSig) !== -1` matched
+  // issues that merely contained the search signature as a substring.
+  await withFetchMock(async function () {
+    return jsonResponse({
+      items: [
+        { number: 12345, state: 'open', html_url: 'https://x/y/12345',
+          title: 'META discussion about [Auto] Recurring failure: boom with unrelated context' }
+      ],
+    });
+  }, async function () {
+    const target = '[Auto] Recurring failure: boom';
+    const result = await findExistingIssue('x/y', target, 'faketoken');
+    assert.strictEqual(result, null, 'substring fallback must not match unrelated titles');
+  });
+
   console.log('issueReporter.test.js: OK');
 })().catch(function (err) {
   console.error(err);

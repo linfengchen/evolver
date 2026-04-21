@@ -6,7 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 // 10 MB — prevents RangeError on large child process output (e.g. git log/diff
 // on large repos). See GHSA reports / issue #451.
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
@@ -105,12 +105,21 @@ function recordToHub(outcome) {
       summary: outcome.summary,
       sender_id: nodeId || undefined,
     });
-    const curlCmd = `curl -s -m 8 -X POST`
-      + ` -H "Content-Type: application/json"`
-      + ` -H "Authorization: Bearer ${apiKey}"`
-      + ` -d '${payload.replace(/'/g, "'\\''")}'`
-      + ` "${hubUrl.replace(/\/+$/, '')}/a2a/evolution/record"`;
-    execSync(curlCmd, { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER });
+    // Argv-array form avoids shell interpretation of apiKey, payload, or the
+    // hub URL. Values cannot break out through shell metacharacters.
+    const res = spawnSync('curl', [
+      '-s', '-m', '8', '-X', 'POST',
+      '-H', 'Content-Type: application/json',
+      '-H', `Authorization: Bearer ${apiKey}`,
+      '-d', payload,
+      `${hubUrl.replace(/\/+$/, '')}/a2a/evolution/record`,
+    ], {
+      timeout: 10000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      maxBuffer: MAX_EXEC_BUFFER,
+      shell: false,
+    });
+    if (res.status !== 0 || res.error) return false;
     return true;
   } catch {
     return false;

@@ -70,6 +70,9 @@ function computeErrorKey(signals) {
         s === 'failure_loop_detected' ||
         s === 'high_failure_ratio';
     })
+    .map(function (s) {
+      return s.replace(/^recurring_errsig\(\d+x\):/, 'recurring_errsig:');
+    })
     .sort()
     .join('|');
   return crypto.createHash('sha256').update(relevant || 'unknown').digest('hex').slice(0, 16);
@@ -180,7 +183,7 @@ function shouldReport(signals, config) {
   if (!hasFailureLoop && !hasRecurringAndHigh) return false;
 
   const streakCount = extractStreakCount(signals);
-  if (streakCount > 0 && streakCount < config.minStreak) return false;
+  if (streakCount < config.minStreak) return false;
 
   const state = readState();
   const errorKey = computeErrorKey(signals);
@@ -246,10 +249,12 @@ async function findExistingIssue(repo, title, token) {
   let data;
   try { data = await response.json(); } catch (_) { return null; }
   const items = Array.isArray(data && data.items) ? data.items : [];
+  const AUTO_PREFIX = '[Auto] Recurring failure: ';
   const match = items.find(function (it) {
     return it && typeof it.title === 'string' && it.title.trim() === title.trim() && it.state === 'open';
   }) || items.find(function (it) {
-    return it && it.state === 'open' && typeof it.title === 'string' && it.title.indexOf(titleSig) !== -1;
+    return it && it.state === 'open' && typeof it.title === 'string' &&
+      it.title.startsWith(AUTO_PREFIX) && it.title.trim().startsWith(titleSig.trim());
   });
   if (!match) return null;
   return { number: match.number, url: match.html_url, title: match.title };
@@ -284,7 +289,7 @@ async function maybeReportIssue(opts) {
       if (!recentKeys.includes(errorKey)) recentKeys.push(errorKey);
       if (recentKeys.length > 20) recentKeys = recentKeys.slice(-20);
       writeState({
-        lastReportedAt: new Date().toISOString(),
+        lastReportedAt: state.lastReportedAt || null,
         recentIssueKeys: recentKeys,
         lastIssueUrl: existing.url,
         lastIssueNumber: existing.number,
@@ -312,4 +317,13 @@ async function maybeReportIssue(opts) {
   }
 }
 
-module.exports = { maybeReportIssue, buildIssueBody, shouldReport, findExistingIssue, getConfig };
+module.exports = {
+  maybeReportIssue,
+  buildIssueBody,
+  shouldReport,
+  findExistingIssue,
+  getConfig,
+  computeErrorKey,
+  extractStreakCount,
+  extractErrorSignature,
+};

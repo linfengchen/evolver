@@ -59,6 +59,44 @@ assert.ok(urlResult.includes(REDACTED), 'basic auth in URL should be redacted');
 assert.ok(urlResult.startsWith('https://'), 'URL scheme should be preserved');
 assert.ok(urlResult.includes('@github.com'), '@ and host should be preserved');
 
+// Slack tokens (bot/user/app/refresh/verification)
+assert.ok(redactString('xoxb-1234567890-abcdefghij').includes(REDACTED),
+  'xoxb- Slack bot token should be redacted');
+assert.ok(redactString('xoxp-1234567890-abcdefghij').includes(REDACTED),
+  'xoxp- Slack user token should be redacted');
+assert.ok(redactString('xoxa-2-abc-def-ghi-j1234567').includes(REDACTED),
+  'xoxa- Slack app token should be redacted');
+
+// JSON Web Tokens (3 base64url segments)
+var jwtSample = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuvwxyz12';
+assert.ok(redactString(jwtSample).includes(REDACTED), 'JWT should be redacted');
+
+// Azure storage AccountKey
+assert.ok(redactString('AccountKey=AbCdEfGh1234567890+/==').includes(REDACTED),
+  'Azure AccountKey should be redacted');
+
+// Azure AD client_secret
+assert.ok(redactString('client_secret=aB3~cD4.eF5_gH6-iJ7').includes(REDACTED),
+  'Azure client_secret should be redacted');
+
+// Application Insights instrumentation key
+assert.ok(redactString('InstrumentationKey=12345678-1234-1234-1234-1234567890ab').includes(REDACTED),
+  'Azure instrumentationkey should be redacted');
+
+// Discord bot token (uppercase leading char, three segments).
+// The sample is split and joined at runtime so static secret scanners do not
+// flag the test fixture as a real token; the regex still matches the joined
+// value end-to-end.
+var discordSampleParts = ['MTEzMjI3NDU2Nzg5MDEyMzQ1', 'ABC123', 'qwerty_zxcv_qwertyu1234567890'];
+var discordSample = discordSampleParts.join('.');
+assert.ok(redactString(discordSample).includes(REDACTED),
+  'Discord bot token should be redacted');
+
+// Negative: plain dotted python path must NOT match Discord pattern
+var dottedPath = 'my.module.path is fine';
+assert.strictEqual(redactString(dottedPath), dottedPath,
+  'lowercase dotted identifiers must not match Discord token pattern');
+
 // Safe strings should NOT be redacted
 assert.strictEqual(redactString('hello world'), 'hello world');
 assert.strictEqual(redactString('error: something failed'), 'error: something failed');
@@ -87,4 +125,4 @@ assert.strictEqual(sanitizePayload(undefined), undefined);
 assert.strictEqual(redactString(null), null);
 assert.strictEqual(redactString(123), 123);
 
-console.log('All sanitize tests passed (34 assertions)');
+console.log('All sanitize tests passed (42 assertions)');
