@@ -9,9 +9,9 @@ const { getEvolutionDir } = require('./paths');
 const { captureEnvFingerprint } = require('./envFingerprint');
 const { redactString } = require('./sanitize');
 const { getNodeId } = require('./a2aProtocol');
+const { SELF_PR_REPO } = require('../config');
 
 const STATE_FILE_NAME = 'issue_reporter_state.json';
-const DEFAULT_REPO = 'autogame-17/capability-evolver';
 const DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MIN_STREAK = 5;
 const MAX_LOG_CHARS = 2000;
@@ -21,7 +21,9 @@ function getConfig() {
   const enabled = String(process.env.EVOLVER_AUTO_ISSUE || 'true').toLowerCase();
   if (enabled === 'false' || enabled === '0') return null;
   return {
-    repo: process.env.EVOLVER_ISSUE_REPO || DEFAULT_REPO,
+    // Default repo is shared with self-PR (see config.SELF_PR_REPO) so that
+    // auto-reported issues and auto-filed PRs land in the same public repo.
+    repo: process.env.EVOLVER_ISSUE_REPO || SELF_PR_REPO,
     cooldownMs: Number(process.env.EVOLVER_ISSUE_COOLDOWN_MS) || DEFAULT_COOLDOWN_MS,
     minStreak: Number(process.env.EVOLVER_ISSUE_MIN_STREAK) || DEFAULT_MIN_STREAK,
   };
@@ -310,4 +312,4 @@ async function maybeReportIssue(opts) {
   }
 }
 
-module.exports = { maybeReportIssue, buildIssueBody, shouldReport, findExistingIssue };
+module.exports = { maybeReportIssue, buildIssueBody, shouldReport, findExistingIssue, getConfig };

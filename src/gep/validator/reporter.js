@@ -8,8 +8,8 @@
 const crypto = require('crypto');
 const { buildHubHeaders, getHubUrl, getNodeId } = require('../a2aProtocol');
 const { captureEnvFingerprint } = require('../envFingerprint');
+const { resolveHubUrl: resolveDefaultHubUrl } = require('../../config');
 
-const HUB_URL_FALLBACK = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
 const REPORT_TIMEOUT_MS = Number(process.env.EVOLVER_VALIDATOR_REPORT_TIMEOUT_MS) || 10_000;
 
 function resolveHubUrl() {
@@ -17,7 +17,7 @@ function resolveHubUrl() {
     const u = getHubUrl && getHubUrl();
     if (u && typeof u === 'string') return u;
   } catch (_) {}
-  return HUB_URL_FALLBACK;
+  return resolveDefaultHubUrl();
 }
 
 function hashExecutionLog(results) {

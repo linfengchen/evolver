@@ -7,8 +7,7 @@
 // ---------------------------------------------------------------------------
 
 const { getNodeId, buildHubHeaders } = require('./a2aProtocol');
-
-const HUB_URL = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
+const { resolveHubUrl } = require('../config');
 
 function buildAuthHeaders() {
   return buildHubHeaders();
@@ -57,7 +56,7 @@ async function fetchTasks(opts) {
       payload,
     };
 
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/fetch`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/fetch`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
@@ -352,7 +351,7 @@ async function claimTask(taskId, opts) {
   if (!nodeId || !taskId) return false;
 
   try {
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/task/claim`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/task/claim`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
 
@@ -386,7 +385,7 @@ async function completeTask(taskId, assetId) {
   if (!nodeId || !taskId || !assetId) return false;
 
   try {
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/task/complete`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/task/complete`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
 
@@ -437,7 +436,7 @@ async function claimWorkerTask(taskId) {
   if (!nodeId || !taskId) return null;
 
   try {
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/work/claim`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/work/claim`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
 
@@ -461,7 +460,7 @@ async function completeWorkerTask(assignmentId, resultAssetId) {
   if (!nodeId || !assignmentId || !resultAssetId) return false;
 
   try {
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/work/complete`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/work/complete`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
 

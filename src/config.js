@@ -32,6 +32,31 @@ const HTTP_TRANSPORT_TIMEOUT_MS = envInt('EVOLVER_HTTP_TRANSPORT_TIMEOUT_MS', 15
 const SECRET_CACHE_TTL_MS = envInt('EVOLVER_SECRET_CACHE_TTL_MS', 60000);
 const HUB_SEARCH_TIMEOUT_MS = envInt('EVOLVER_HUB_SEARCH_TIMEOUT_MS', 8000);
 
+// Hub URL resolution (since v1.69.7).
+//
+// Precedence at runtime (re-evaluated on every call of resolveHubUrl()):
+//   1. process.env.A2A_HUB_URL   -- primary override used by most modules
+//   2. process.env.EVOMAP_HUB_URL -- secondary, kept for backward compat
+//   3. process.env.EVOLVER_DEFAULT_HUB_URL -- deployment-time default override
+//      (useful for air-gapped deployments that point all clients at a private
+//       hub endpoint without having to rewrite A2A_HUB_URL in every service)
+//   4. PUBLIC_DEFAULT_HUB_URL below (compile-time literal)
+//
+// IMPORTANT: callers MUST NOT cache the return value at module-load time.
+// Before v1.69.7 several modules (validator/*, taskReceiver, directoryClient,
+// privacyClient) bound their HUB_URL fallback at require()-time, which meant
+// that setting process.env.A2A_HUB_URL later (common in tests and wrappers)
+// had no effect. Use resolveHubUrl() inside the function body that builds the
+// HTTP request instead.
+const PUBLIC_DEFAULT_HUB_URL = 'https://evomap.ai';
+
+function resolveHubUrl() {
+  return process.env.A2A_HUB_URL
+    || process.env.EVOMAP_HUB_URL
+    || process.env.EVOLVER_DEFAULT_HUB_URL
+    || PUBLIC_DEFAULT_HUB_URL;
+}
+
 // --- Solidify & Validation ---
 
 const VALIDATION_TIMEOUT_MS = envInt('EVOLVER_VALIDATION_TIMEOUT_MS', 180000);
@@ -95,12 +120,15 @@ const SELF_PR_TIMEOUT_MS = envInt('EVOLVER_SELF_PR_TIMEOUT_MS', 30000);
 
 // --- Leak Check ---
 
-const LEAK_CHECK_MODE = envStr('EVOLVER_LEAK_CHECK', 'warn');
+const LEAK_CHECK_MODE = envStr('EVOLVER_LEAK_CHECK', 'strict');
 
-// --- Validator mode (opt-in) ---
-// Opt-in node role: when enabled, the evolver periodically fetches assigned
-// validation tasks from the Hub, runs the commands in an isolated sandbox,
-// and submits ValidationReports. Default is OFF for backward compatibility.
+// --- Validator mode (opt-out) ---
+// Node role: the evolver periodically fetches assigned validation tasks from
+// the Hub, runs the commands in an isolated sandbox, and submits
+// ValidationReports. Default is ON (opt-out). Set EVOLVER_VALIDATOR_ENABLED=false
+// to skip the validator role. Note: the exported VALIDATOR_ENABLED below is a
+// legacy helper that resolves only from env (no persisted flag). Real runtime
+// gating lives in src/gep/validator/index.js:isValidatorEnabled().
 
 const VALIDATOR_ENABLED = (function () {
   const v = String(process.env.EVOLVER_VALIDATOR_ENABLED || '').toLowerCase().trim();
@@ -124,6 +152,8 @@ module.exports = {
   HTTP_TRANSPORT_TIMEOUT_MS,
   SECRET_CACHE_TTL_MS,
   HUB_SEARCH_TIMEOUT_MS,
+  PUBLIC_DEFAULT_HUB_URL,
+  resolveHubUrl,
   // Solidify
   VALIDATION_TIMEOUT_MS,
   CANARY_TIMEOUT_MS,

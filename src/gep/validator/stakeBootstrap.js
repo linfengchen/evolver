@@ -17,10 +17,10 @@
 
 const crypto = require('crypto');
 const { buildHubHeaders, getHubUrl, getNodeId } = require('../a2aProtocol');
+const { resolveHubUrl: resolveDefaultHubUrl } = require('../../config');
 
 const DEFAULT_STAKE_AMOUNT = Number(process.env.EVOLVER_VALIDATOR_STAKE_AMOUNT) || 100;
 const STAKE_TIMEOUT_MS = Number(process.env.EVOLVER_VALIDATOR_STAKE_TIMEOUT_MS) || 10_000;
-const HUB_URL_FALLBACK = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
 
 const BACKOFF_STEPS_TRANSIENT_MS = [
   5 * 60 * 1000,
@@ -39,7 +39,7 @@ function resolveHubUrl() {
     const u = getHubUrl && getHubUrl();
     if (u && typeof u === 'string') return u;
   } catch (_) {}
-  return HUB_URL_FALLBACK;
+  return resolveDefaultHubUrl();
 }
 
 function logStakeEvent(event, data) {

@@ -6,12 +6,12 @@
 
 const { getNodeId, buildHubHeaders } = require('./a2aProtocol');
 const { generateKey, encrypt, decrypt, pack, unpack } = require('./crypto');
+const { resolveHubUrl } = require('../config');
 
-const HUB_URL = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
 const PRIVACY_TIMEOUT_MS = 15000;
 
 function privacyUrl(path) {
-  return `${HUB_URL.replace(/\/+$/, '')}/a2a/privacy${path}`;
+  return `${resolveHubUrl().replace(/\/+$/, '')}/a2a/privacy${path}`;
 }
 
 /**

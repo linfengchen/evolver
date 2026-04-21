@@ -5,8 +5,8 @@
 // ---------------------------------------------------------------------------
 
 const { getNodeId, buildHubHeaders } = require('./a2aProtocol');
+const { resolveHubUrl } = require('../config');
 
-const HUB_URL = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || 'https://evomap.ai';
 const DIRECTORY_TIMEOUT_MS = 8000;
 
 /**
@@ -21,7 +21,7 @@ async function searchByQuery(query, opts) {
     const params = new URLSearchParams({ q: query });
     if (opts?.limit) params.set('limit', String(opts.limit));
 
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/directory/search?${params}`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/directory/search?${params}`;
     const res = await fetch(url, {
       headers: buildHubHeaders(),
       signal: AbortSignal.timeout(DIRECTORY_TIMEOUT_MS),
@@ -47,7 +47,7 @@ async function searchBySignals(signals, opts) {
     const params = new URLSearchParams({ signals: signals.join(',') });
     if (opts?.limit) params.set('limit', String(opts.limit));
 
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/directory/search?${params}`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/directory/search?${params}`;
     const res = await fetch(url, {
       headers: buildHubHeaders(),
       signal: AbortSignal.timeout(DIRECTORY_TIMEOUT_MS),
@@ -69,7 +69,7 @@ async function searchBySignals(signals, opts) {
 async function getAgentProfile(nodeId) {
   if (!nodeId) return null;
   try {
-    const url = `${HUB_URL.replace(/\/+$/, '')}/a2a/directory/profile/${encodeURIComponent(nodeId)}`;
+    const url = `${resolveHubUrl().replace(/\/+$/, '')}/a2a/directory/profile/${encodeURIComponent(nodeId)}`;
     const res = await fetch(url, {
       headers: buildHubHeaders(),
       signal: AbortSignal.timeout(DIRECTORY_TIMEOUT_MS),

@@ -77,6 +77,26 @@ function jsonResponse(body, status) {
     assert.strictEqual(called, false, 'fetch should not be called for empty title');
   });
 
+  // Case 7: default repo matches config.SELF_PR_REPO (no legacy repo drift since v1.69.7)
+  const savedIssueRepo = process.env.EVOLVER_ISSUE_REPO;
+  delete process.env.EVOLVER_ISSUE_REPO;
+  try {
+    delete require.cache[MODULE_PATH];
+    delete require.cache[require.resolve('../src/config')];
+    const { getConfig } = require('../src/gep/issueReporter');
+    const { SELF_PR_REPO } = require('../src/config');
+    const cfg = getConfig();
+    assert.ok(cfg, 'getConfig should return an object when auto-issue is enabled by default');
+    assert.strictEqual(cfg.repo, SELF_PR_REPO, 'issueReporter default repo must equal config.SELF_PR_REPO');
+    assert.strictEqual(SELF_PR_REPO, 'EvoMap/evolver', 'SELF_PR_REPO default should be EvoMap/evolver');
+  } finally {
+    if (savedIssueRepo === undefined) {
+      delete process.env.EVOLVER_ISSUE_REPO;
+    } else {
+      process.env.EVOLVER_ISSUE_REPO = savedIssueRepo;
+    }
+  }
+
   console.log('issueReporter.test.js: OK');
 })().catch(function (err) {
   console.error(err);
