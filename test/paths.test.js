@@ -14,7 +14,8 @@ describe('getRepoRoot', () => {
   let tmpDir;
   const savedEnv = {};
   const envKeys = [
-    'EVOLVER_REPO_ROOT', 'EVOLVER_USE_PARENT_GIT',
+    'EVOLVER_REPO_ROOT', 'EVOLVER_USE_PARENT_GIT', 'EVOLVER_NO_PARENT_GIT',
+    'EVOLVER_QUIET_PARENT_GIT',
     'OPENCLAW_WORKSPACE', 'MEMORY_DIR', 'EVOLUTION_DIR', 'GEP_ASSETS_DIR',
   ];
 
@@ -24,6 +25,7 @@ describe('getRepoRoot', () => {
       savedEnv[k] = process.env[k];
       delete process.env[k];
     }
+    process.env.EVOLVER_QUIET_PARENT_GIT = '1';
   });
 
   afterEach(() => {
@@ -46,12 +48,86 @@ describe('getRepoRoot', () => {
     delete process.env.EVOLVER_REPO_ROOT;
     const result = getRepoRoot();
     assert.ok(typeof result === 'string' && result.length > 0);
+    // evolver repo itself is a git repo during test, so we stop at ownDir
+    assert.equal(result, ownDir);
   });
 
   it('EVOLVER_REPO_ROOT takes precedence over .git detection', () => {
     process.env.EVOLVER_REPO_ROOT = tmpDir;
     const { getRepoRoot } = freshRequire('../src/gep/paths');
     assert.equal(getRepoRoot(), tmpDir);
+  });
+
+  // Regression guard for 1.69.6:
+  // When evolver is installed as an npm dependency or a skill (no .git in
+  // its own directory), it MUST auto-detect the host workspace's .git so
+  // that git diff can see Hand Agent edits. Before 1.69.6 the default was
+  // to ignore the parent git, which caused hollow_commit failures on every
+  // evolution cycle for npm-installed users.
+  it('auto-detects parent .git when own directory has none', () => {
+    const host = fs.mkdtempSync(path.join(os.tmpdir(), 'host-git-'));
+    fs.mkdirSync(path.join(host, '.git'));
+    // Simulate evolver living under node_modules/@scope/pkg/src/gep.
+    const fakeGepDir = path.join(host, 'node_modules', '@evomap', 'evolver', 'src', 'gep');
+    fs.mkdirSync(fakeGepDir, { recursive: true });
+    const pathsSrc = fs.readFileSync(
+      path.resolve(__dirname, '..', 'src', 'gep', 'paths.js'),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(fakeGepDir, 'paths.js'), pathsSrc);
+
+    const resolved = require.resolve(path.join(fakeGepDir, 'paths.js'));
+    delete require.cache[resolved];
+    const { getRepoRoot } = require(resolved);
+    assert.equal(getRepoRoot(), host);
+
+    delete require.cache[resolved];
+    fs.rmSync(host, { recursive: true, force: true });
+  });
+
+  it('respects EVOLVER_NO_PARENT_GIT=true as opt-out', () => {
+    const host = fs.mkdtempSync(path.join(os.tmpdir(), 'host-git-'));
+    fs.mkdirSync(path.join(host, '.git'));
+    const fakeGepDir = path.join(host, 'node_modules', '@evomap', 'evolver', 'src', 'gep');
+    fs.mkdirSync(fakeGepDir, { recursive: true });
+    const pathsSrc = fs.readFileSync(
+      path.resolve(__dirname, '..', 'src', 'gep', 'paths.js'),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(fakeGepDir, 'paths.js'), pathsSrc);
+
+    process.env.EVOLVER_NO_PARENT_GIT = 'true';
+    const resolved = require.resolve(path.join(fakeGepDir, 'paths.js'));
+    delete require.cache[resolved];
+    const { getRepoRoot } = require(resolved);
+    // Opt-out: should fall back to ownDir (the fake package root), NOT host.
+    const ownDir = path.resolve(fakeGepDir, '..', '..');
+    assert.equal(getRepoRoot(), ownDir);
+
+    delete require.cache[resolved];
+    fs.rmSync(host, { recursive: true, force: true });
+  });
+
+  it('legacy EVOLVER_USE_PARENT_GIT=false still opts out', () => {
+    const host = fs.mkdtempSync(path.join(os.tmpdir(), 'host-git-'));
+    fs.mkdirSync(path.join(host, '.git'));
+    const fakeGepDir = path.join(host, 'node_modules', '@evomap', 'evolver', 'src', 'gep');
+    fs.mkdirSync(fakeGepDir, { recursive: true });
+    const pathsSrc = fs.readFileSync(
+      path.resolve(__dirname, '..', 'src', 'gep', 'paths.js'),
+      'utf8'
+    );
+    fs.writeFileSync(path.join(fakeGepDir, 'paths.js'), pathsSrc);
+
+    process.env.EVOLVER_USE_PARENT_GIT = 'false';
+    const resolved = require.resolve(path.join(fakeGepDir, 'paths.js'));
+    delete require.cache[resolved];
+    const { getRepoRoot } = require(resolved);
+    const ownDir = path.resolve(fakeGepDir, '..', '..');
+    assert.equal(getRepoRoot(), ownDir);
+
+    delete require.cache[resolved];
+    fs.rmSync(host, { recursive: true, force: true });
   });
 });
 

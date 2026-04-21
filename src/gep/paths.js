@@ -3,6 +3,21 @@ const fs = require('fs');
 
 let _cachedRepoRoot = null;
 
+// Resolve the git repository that evolver should treat as its work area.
+//
+// Precedence:
+//   1. EVOLVER_REPO_ROOT (explicit override, always wins)
+//   2. evolver's own directory if it has a .git
+//   3. Nearest ancestor directory that has a .git (the "host" workspace)
+//      - On by default since 1.69.6. This matches how most users install
+//        evolver (as an npm dependency or a skill under another repo):
+//        the Hand Agent writes files in the host workspace, not inside the
+//        evolver package, so git diff MUST run against the host repo.
+//      - To opt out (keep the 1.69.5 and earlier behavior of ignoring the
+//        parent git), set EVOLVER_NO_PARENT_GIT=true. The older
+//        EVOLVER_USE_PARENT_GIT=true flag is still honored for forward
+//        compatibility but is no longer required.
+//   4. Fall back to evolver's own directory.
 function getRepoRoot() {
   if (_cachedRepoRoot) return _cachedRepoRoot;
 
@@ -18,20 +33,30 @@ function getRepoRoot() {
     return _cachedRepoRoot;
   }
 
+  const noParent = String(process.env.EVOLVER_NO_PARENT_GIT || '').toLowerCase() === 'true';
+  // Older flag kept for backward compatibility. Setting it to 'false'
+  // explicitly is treated as an opt-out, mirroring EVOLVER_NO_PARENT_GIT.
+  const legacyFlag = process.env.EVOLVER_USE_PARENT_GIT;
+  const legacyOptOut = typeof legacyFlag === 'string' && legacyFlag.toLowerCase() === 'false';
+
   let dir = path.dirname(ownDir);
-  while (dir !== '/' && dir !== '.') {
+  while (dir !== path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, '.git'))) {
-      if (process.env.EVOLVER_USE_PARENT_GIT === 'true') {
-        console.warn('[evolver] Using parent git repository at:', dir);
-        _cachedRepoRoot = dir;
+      if (noParent || legacyOptOut) {
+        if (!process.env.EVOLVER_QUIET_PARENT_GIT) {
+          console.warn(
+            '[evolver] Detected .git in parent directory', dir,
+            '-- ignoring because EVOLVER_NO_PARENT_GIT is set.',
+            'Unset it (or set EVOLVER_REPO_ROOT) if evolution stalls with hollow_commit errors.'
+          );
+        }
+        _cachedRepoRoot = ownDir;
         return _cachedRepoRoot;
       }
-      console.warn(
-        '[evolver] Detected .git in parent directory', dir,
-        '-- ignoring. Set EVOLVER_USE_PARENT_GIT=true to override,',
-        'or EVOLVER_REPO_ROOT to specify the target directory explicitly.'
-      );
-      _cachedRepoRoot = ownDir;
+      if (!process.env.EVOLVER_QUIET_PARENT_GIT) {
+        console.log('[evolver] Using host git repository at:', dir);
+      }
+      _cachedRepoRoot = dir;
       return _cachedRepoRoot;
     }
     dir = path.dirname(dir);
