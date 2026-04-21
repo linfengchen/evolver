@@ -563,6 +563,7 @@ async function main() {
     const { getEvolutionDir, getRepoRoot } = require('./src/gep/paths');
     const { loadGenes } = require('./src/gep/assetStore');
     const { execSync } = require('child_process');
+    const MAX_EXEC_BUFFER = 10 * 1024 * 1024; // 10MB; see GHSA reports / #451
 
     const statePath = path.join(getEvolutionDir(), 'evolution_solidify_state.json');
     const state = readJsonSafe(statePath);
@@ -583,9 +584,9 @@ async function main() {
     const repoRoot = getRepoRoot();
     let diff = '';
     try {
-      const unstaged = execSync('git diff', { cwd: repoRoot, encoding: 'utf8', timeout: 30000 }).trim();
-      const staged = execSync('git diff --cached', { cwd: repoRoot, encoding: 'utf8', timeout: 30000 }).trim();
-      const untracked = execSync('git ls-files --others --exclude-standard', { cwd: repoRoot, encoding: 'utf8', timeout: 10000 }).trim();
+      const unstaged = execSync('git diff', { cwd: repoRoot, encoding: 'utf8', timeout: 30000, maxBuffer: MAX_EXEC_BUFFER }).trim();
+      const staged = execSync('git diff --cached', { cwd: repoRoot, encoding: 'utf8', timeout: 30000, maxBuffer: MAX_EXEC_BUFFER }).trim();
+      const untracked = execSync('git ls-files --others --exclude-standard', { cwd: repoRoot, encoding: 'utf8', timeout: 10000, maxBuffer: MAX_EXEC_BUFFER }).trim();
       if (staged) diff += '=== Staged Changes ===\n' + staged + '\n\n';
       if (unstaged) diff += '=== Unstaged Changes ===\n' + unstaged + '\n\n';
       if (untracked) diff += '=== Untracked Files ===\n' + untracked + '\n';
@@ -667,8 +668,8 @@ async function main() {
     } else if (args.includes('--reject')) {
       console.log('\n[Review] Rejected. Rolling back changes...');
       try {
-        execSync('git checkout -- .', { cwd: repoRoot, encoding: 'utf8', timeout: 30000 });
-        execSync('git clean -fd', { cwd: repoRoot, encoding: 'utf8', timeout: 30000 });
+        execSync('git checkout -- .', { cwd: repoRoot, encoding: 'utf8', timeout: 30000, maxBuffer: MAX_EXEC_BUFFER });
+        execSync('git clean -fd', { cwd: repoRoot, encoding: 'utf8', timeout: 30000, maxBuffer: MAX_EXEC_BUFFER });
         const evolDir = getEvolutionDir();
         const sp = path.join(evolDir, 'evolution_solidify_state.json');
         if (fs.existsSync(sp)) {

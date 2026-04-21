@@ -6,6 +6,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync, spawn } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 const { getRepoRoot, getWorkspaceRoot, getEvolverLogPath } = require('../gep/paths');
 
 var WORKSPACE_ROOT = getWorkspaceRoot();
@@ -31,7 +35,7 @@ function sleepMs(ms) {
 }
 
 function execText(command) {
-    return execSync(command, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return execSync(command, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: MAX_EXEC_BUFFER });
 }
 
 function listProcesses() {

@@ -28,6 +28,59 @@ const MAX_CMD_TIMEOUT_MS = 120_000;
 const DEFAULT_BATCH_TIMEOUT_MS = 180_000;
 const MAX_OUTPUT_CHARS = 4000;
 
+// Hard allowlist of executables the Hub-provided validation command may invoke.
+// Any command whose first token is not in this set is rejected before spawn().
+// This prevents command injection via Hub-delivered task.command strings even
+// if Hub itself is compromised or mis-signs a task.
+const ALLOWED_EXECUTABLES = new Set(['node', 'npm', 'npx']);
+
+// Parse a command string into executable + argv array, supporting single and
+// double quotes. This is a minimal parser and does NOT expand environment
+// variables, globs, redirects, pipes, or subshells. If the command string
+// contains shell metacharacters that cannot be parsed, we reject it.
+//
+// Returns { executable, args } on success, or throws on parse failure.
+function parseCommand(cmdString) {
+  if (typeof cmdString !== 'string') {
+    throw new Error('command must be a string, got ' + typeof cmdString);
+  }
+  const tokens = [];
+  let buf = '';
+  let quote = null; // '\'' | '"' | null
+  for (let i = 0; i < cmdString.length; i++) {
+    const ch = cmdString[i];
+    if (quote) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        buf += ch;
+      }
+      continue;
+    }
+    if (ch === '\'' || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t' || ch === '\n') {
+      if (buf.length > 0) {
+        tokens.push(buf);
+        buf = '';
+      }
+      continue;
+    }
+    // Reject shell metacharacters that would give injection leverage even with
+    // shell:false. A legitimate validation command should never contain these.
+    if (ch === '|' || ch === '&' || ch === ';' || ch === '>' || ch === '<' || ch === '`' || ch === '$') {
+      throw new Error('shell metacharacter not allowed in command: ' + ch);
+    }
+    buf += ch;
+  }
+  if (quote) throw new Error('unterminated quote in command');
+  if (buf.length > 0) tokens.push(buf);
+  if (tokens.length === 0) throw new Error('empty command');
+  return { executable: tokens[0], args: tokens.slice(1) };
+}
+
 function safeNumber(v, fallback) {
   const n = Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -85,9 +138,37 @@ function runSingleCommand(cmd, opts) {
 
   return new Promise((resolve) => {
     let child;
+    let parsed;
     try {
-      child = spawn(String(cmd), {
-        shell: true,
+      parsed = parseCommand(String(cmd));
+    } catch (err) {
+      resolve({
+        cmd: String(cmd),
+        ok: false,
+        stdout: '',
+        stderr: 'command_parse_failed: ' + (err && err.message ? err.message : String(err)),
+        exitCode: -1,
+        durationMs: 0,
+        timedOut: false,
+      });
+      return;
+    }
+    if (!ALLOWED_EXECUTABLES.has(parsed.executable)) {
+      resolve({
+        cmd: String(cmd),
+        ok: false,
+        stdout: '',
+        stderr: 'executable_not_allowed: ' + parsed.executable
+          + ' (allowed: ' + Array.from(ALLOWED_EXECUTABLES).join(', ') + ')',
+        exitCode: -1,
+        durationMs: 0,
+        timedOut: false,
+      });
+      return;
+    }
+    try {
+      child = spawn(parsed.executable, parsed.args, {
+        shell: false,
         cwd,
         env,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -255,6 +336,8 @@ module.exports = {
   createSandboxDir,
   cleanupDir,
   buildSandboxEnv,
+  parseCommand,
+  ALLOWED_EXECUTABLES,
   DEFAULT_CMD_TIMEOUT_MS,
   MAX_CMD_TIMEOUT_MS,
   DEFAULT_BATCH_TIMEOUT_MS,

@@ -4,6 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 const { getWorkspaceRoot } = require('../gep/paths');
 
 var LOCK_MAX_AGE_MS = require('../config').LOCK_MAX_AGE_MS;
@@ -14,14 +18,14 @@ function repair(gitRoot) {
 
     // 1. Abort pending rebase
     try {
-        execSync('git rebase --abort', { cwd: root, stdio: 'ignore' });
+        execSync('git rebase --abort', { cwd: root, stdio: 'ignore', maxBuffer: MAX_EXEC_BUFFER });
         repaired.push('rebase_aborted');
         console.log('[SelfRepair] Aborted pending rebase.');
     } catch (e) {}
 
     // 2. Abort pending merge
     try {
-        execSync('git merge --abort', { cwd: root, stdio: 'ignore' });
+        execSync('git merge --abort', { cwd: root, stdio: 'ignore', maxBuffer: MAX_EXEC_BUFFER });
         repaired.push('merge_aborted');
         console.log('[SelfRepair] Aborted pending merge.');
     } catch (e) {}
@@ -45,8 +49,8 @@ function repair(gitRoot) {
     if (process.env.EVOLVE_GIT_RESET === 'true') {
         try {
             console.log('[SelfRepair] Resetting local branch to origin/main (HARD reset)...');
-            execSync('git fetch origin main', { cwd: root, stdio: 'ignore' });
-            execSync('git reset --hard origin/main', { cwd: root, stdio: 'ignore' });
+            execSync('git fetch origin main', { cwd: root, stdio: 'ignore', maxBuffer: MAX_EXEC_BUFFER });
+            execSync('git reset --hard origin/main', { cwd: root, stdio: 'ignore', maxBuffer: MAX_EXEC_BUFFER });
             repaired.push('hard_reset_to_origin');
         } catch (e) {
             console.warn('[SelfRepair] Hard reset failed: ' + e.message);
@@ -54,7 +58,7 @@ function repair(gitRoot) {
     } else {
         // Safe fetch
         try {
-            execSync('git fetch origin', { cwd: root, stdio: 'ignore', timeout: 30000 });
+            execSync('git fetch origin', { cwd: root, stdio: 'ignore', timeout: 30000, maxBuffer: MAX_EXEC_BUFFER });
             repaired.push('fetch_ok');
         } catch (e) {
             console.warn('[SelfRepair] git fetch failed: ' + e.message);

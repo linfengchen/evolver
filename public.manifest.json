@@ -38,6 +38,7 @@
     "test/llm_helper.js",
     "test/vibe_test.js",
     "test/build-exclude.test.js",
+    "test/npm-pack-includes-scripts.test.js",
     "docker-compose.test.yml",
     ".git/**"
   ],

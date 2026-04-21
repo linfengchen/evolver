@@ -5,6 +5,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 const { getSkillsDir, getWorkspaceRoot } = require('../gep/paths');
 
 const IGNORE_LIST = new Set([
@@ -93,7 +97,7 @@ function autoHeal(skillName, issues) {
                 try { fs.unlinkSync(path.join(skillPath, 'package-lock.json')); } catch (e) {}
                 
                 execSync('npm install --production --no-audit --no-fund --ignore-scripts', {
-                    cwd: skillPath, stdio: 'ignore', timeout: 60000 // Increased timeout
+                    cwd: skillPath, stdio: 'ignore', timeout: 60000 // Increased timeout, maxBuffer: MAX_EXEC_BUFFER
                 });
                 healed.push(issues[i]);
                 console.log('[SkillsMonitor] Auto-healed ' + skillName + ': npm install');

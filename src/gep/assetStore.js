@@ -7,6 +7,76 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
+// ---------------------------------------------------------------------------
+// File-level advisory locking for JSON read-modify-write operations.
+//
+// Problem: multiple processes (daemon + CLI script + cron) can each call
+// loadGenes() -> mutate -> writeJsonAtomic(), which is safe for a single
+// writer but loses updates when two processes interleave their read/write
+// windows. writeJsonAtomic is atomic w.r.t. partial writes, not w.r.t. the
+// enclosing read-modify-write transaction.
+//
+// Solution: O_EXCL-based lock file next to the target. Each writer acquires
+// the lock, runs its read/update/write, then releases. Stale locks (owner
+// PID no longer alive) are detected and reclaimed to avoid deadlock after
+// a crash.
+//
+// Synchronous by design -- all callers (upsertGene, appendCapsule, etc.) are
+// synchronous and run on the main loop. We keep the retry loop cheap using a
+// short busy-wait bounded by LOCK_TIMEOUT_MS, which is acceptable given lock
+// contention is rare in practice (one daemon per machine).
+// ---------------------------------------------------------------------------
+const LOCK_TIMEOUT_MS = 5000;
+const LOCK_RETRY_INTERVAL_MS = 20;
+
+function _busyWait(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    // Intentional synchronous spin; duration is bounded by LOCK_RETRY_INTERVAL_MS.
+  }
+}
+
+function _acquireLock(targetPath) {
+  const lockPath = targetPath + '.lock';
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx', encoding: 'utf8' });
+      return lockPath;
+    } catch (e) {
+      if (e && e.code !== 'EEXIST') throw e;
+      try {
+        const pidStr = fs.readFileSync(lockPath, 'utf8').trim();
+        const ownerPid = parseInt(pidStr, 10);
+        if (Number.isFinite(ownerPid) && ownerPid > 0 && ownerPid !== process.pid) {
+          try {
+            process.kill(ownerPid, 0);
+          } catch (_ownerErr) {
+            try { fs.unlinkSync(lockPath); } catch (_e2) {}
+            continue;
+          }
+        }
+      } catch (_readErr) {}
+      _busyWait(LOCK_RETRY_INTERVAL_MS);
+    }
+  }
+  throw new Error('[AssetStore] Lock timeout (' + LOCK_TIMEOUT_MS + 'ms) for: ' + targetPath);
+}
+
+function _releaseLock(lockPath) {
+  if (!lockPath) return;
+  try { fs.unlinkSync(lockPath); } catch (_) {}
+}
+
+function withFileLock(targetPath, fn) {
+  const lockPath = _acquireLock(targetPath);
+  try {
+    return fn();
+  } finally {
+    _releaseLock(lockPath);
+  }
+}
+
 function readJsonIfExists(filePath, fallback) {
   try {
     if (!fs.existsSync(filePath)) return fallback;
@@ -278,29 +348,35 @@ function ensureSchemaFields(obj) {
 
 function upsertGene(geneObj) {
   ensureSchemaFields(geneObj);
-  const current = readJsonIfExists(genesPath(), getDefaultGenes());
-  const genes = Array.isArray(current.genes) ? current.genes : [];
-  const idx = genes.findIndex(g => g && g.id === geneObj.id);
-  if (idx >= 0) genes[idx] = geneObj; else genes.push(geneObj);
-  writeJsonAtomic(genesPath(), { version: current.version || 1, genes });
+  return withFileLock(genesPath(), () => {
+    const current = readJsonIfExists(genesPath(), getDefaultGenes());
+    const genes = Array.isArray(current.genes) ? current.genes : [];
+    const idx = genes.findIndex(g => g && g.id === geneObj.id);
+    if (idx >= 0) genes[idx] = geneObj; else genes.push(geneObj);
+    writeJsonAtomic(genesPath(), { version: current.version || 1, genes });
+  });
 }
 
 function appendCapsule(capsuleObj) {
   ensureSchemaFields(capsuleObj);
-  const current = readJsonIfExists(capsulesPath(), getDefaultCapsules());
-  const capsules = Array.isArray(current.capsules) ? current.capsules : [];
-  capsules.push(capsuleObj);
-  writeJsonAtomic(capsulesPath(), { version: current.version || 1, capsules });
+  return withFileLock(capsulesPath(), () => {
+    const current = readJsonIfExists(capsulesPath(), getDefaultCapsules());
+    const capsules = Array.isArray(current.capsules) ? current.capsules : [];
+    capsules.push(capsuleObj);
+    writeJsonAtomic(capsulesPath(), { version: current.version || 1, capsules });
+  });
 }
 
 function upsertCapsule(capsuleObj) {
   if (!capsuleObj || capsuleObj.type !== 'Capsule' || !capsuleObj.id) return;
   ensureSchemaFields(capsuleObj);
-  const current = readJsonIfExists(capsulesPath(), getDefaultCapsules());
-  const capsules = Array.isArray(current.capsules) ? current.capsules : [];
-  const idx = capsules.findIndex(c => c && c.type === 'Capsule' && String(c.id) === String(capsuleObj.id));
-  if (idx >= 0) capsules[idx] = capsuleObj; else capsules.push(capsuleObj);
-  writeJsonAtomic(capsulesPath(), { version: current.version || 1, capsules });
+  return withFileLock(capsulesPath(), () => {
+    const current = readJsonIfExists(capsulesPath(), getDefaultCapsules());
+    const capsules = Array.isArray(current.capsules) ? current.capsules : [];
+    const idx = capsules.findIndex(c => c && c.type === 'Capsule' && String(c.id) === String(capsuleObj.id));
+    if (idx >= 0) capsules[idx] = capsuleObj; else capsules.push(capsuleObj);
+    writeJsonAtomic(capsulesPath(), { version: current.version || 1, capsules });
+  });
 }
 
 const FAILED_CAPSULES_MAX = 200;
@@ -311,13 +387,15 @@ function getDefaultFailedCapsules() { return { version: 1, failed_capsules: [] }
 function appendFailedCapsule(capsuleObj) {
   if (!capsuleObj || typeof capsuleObj !== 'object') return;
   ensureSchemaFields(capsuleObj);
-  const current = readJsonIfExists(failedCapsulesPath(), getDefaultFailedCapsules());
-  let list = Array.isArray(current.failed_capsules) ? current.failed_capsules : [];
-  list.push(capsuleObj);
-  if (list.length > FAILED_CAPSULES_MAX) {
-    list = list.slice(list.length - FAILED_CAPSULES_TRIM_TO);
-  }
-  writeJsonAtomic(failedCapsulesPath(), { version: current.version || 1, failed_capsules: list });
+  return withFileLock(failedCapsulesPath(), () => {
+    const current = readJsonIfExists(failedCapsulesPath(), getDefaultFailedCapsules());
+    let list = Array.isArray(current.failed_capsules) ? current.failed_capsules : [];
+    list.push(capsuleObj);
+    if (list.length > FAILED_CAPSULES_MAX) {
+      list = list.slice(list.length - FAILED_CAPSULES_TRIM_TO);
+    }
+    writeJsonAtomic(failedCapsulesPath(), { version: current.version || 1, failed_capsules: list });
+  });
 }
 
 function readRecentFailedCapsules(limit) {
@@ -366,4 +444,5 @@ module.exports = {
   appendFailedCapsule, readRecentFailedCapsules,
   genesPath, capsulesPath, eventsPath, candidatesPath, externalCandidatesPath, failedCapsulesPath,
   ensureAssetFiles, buildValidationCmd,
+  withFileLock,
 };

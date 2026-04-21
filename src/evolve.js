@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
 const { getRepoRoot, getWorkspaceRoot, getMemoryDir, getSessionScope } = require('./gep/paths');
 const { extractSignals } = require('./gep/signals');
 const {
@@ -688,7 +692,7 @@ function checkSystemHealth() {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 3000,
-        windowsHide: true,
+        windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
       });
       const count = wmic.split('\n').filter(l => l.trim() && !l.includes('INFO:')).length;
       report.push(`Node Processes: ${count}`);
@@ -697,14 +701,14 @@ function checkSystemHealth() {
         const pgrep = execSync('pgrep -c node', {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 2000,
+          timeout: 2000, maxBuffer: MAX_EXEC_BUFFER
         });
         report.push(`Node Processes: ${pgrep.trim()}`);
       } catch (e) {
         const ps = execSync('ps aux | grep node | grep -v grep | wc -l', {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-          timeout: 2000,
+          timeout: 2000, maxBuffer: MAX_EXEC_BUFFER
         });
         report.push(`Node Processes: ${ps.trim()}`);
       }
@@ -722,7 +726,7 @@ function checkSystemHealth() {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
           timeout: 2000,
-          windowsHide: true,
+          windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
         });
         if (status.trim()) issues.push(status.trim());
       } catch (e) {}
@@ -966,7 +970,7 @@ function checkAndAutoUpdate() {
       const currentPkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
       const currentVersion = currentPkg.version || '0.0.0';
       const npmOut = execSync('npm view @evomap/evolver version 2>/dev/null', {
-        encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+        encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
       }).trim();
       if (npmOut && npmOut !== currentVersion) {
         console.log(`[AutoUpdate] New version available: ${currentVersion} -> ${npmOut} (npm: @evomap/evolver)`);
@@ -980,7 +984,7 @@ function checkAndAutoUpdate() {
         try {
           console.log('[AutoUpdate] Feishu env detected, downloading feishu-evolver-wrapper...');
           execSync('npx -y degit EvoMap/feishu-evolver-wrapper ' + JSON.stringify(wrapperDir), {
-            encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true,
+            encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
           });
           console.log('[AutoUpdate] feishu-evolver-wrapper installed to ' + wrapperDir);
         } catch (e) {
@@ -1032,7 +1036,7 @@ function executeForceUpdate(forceUpdate) {
     try { fs.rmSync(tmpTarget, { recursive: true, force: true }); } catch (_) {}
     execSync('npx -y degit EvoMap/evolver ' + JSON.stringify(tmpTarget), {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 60000, windowsHide: true,
+      timeout: 60000, windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
     });
     var tmpPkg = JSON.parse(fs.readFileSync(path.join(tmpTarget, 'package.json'), 'utf8'));
     if (tmpPkg.version && isAtLeast(tmpPkg.version, requiredVersion)) {
@@ -1064,7 +1068,7 @@ function executeForceUpdate(forceUpdate) {
     var npmCmd = 'npm install -g @evomap/evolver@latest';
     execSync(npmCmd, {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120000, windowsHide: true,
+      timeout: 120000, windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
     });
     var newVerNpm = getCurrentVersion();
     if (isAtLeast(newVerNpm, requiredVersion)) {
@@ -1187,7 +1191,7 @@ async function runPreflightChecks(bridgeEnabled, loopMode) {
     try {
       const _psRace = require('child_process').execSync(
         'ps aux | grep "evolver_hand_" | grep -v grep',
-        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: MAX_EXEC_BUFFER }
       ).trim();
       if (_psRace && _psRace.length > 0) {
         console.log('[Evolver] Another evolver Hand Agent is already running. Yielding this cycle.');
@@ -1299,7 +1303,7 @@ async function run() {
   // Solidify, rollback, and blast radius all depend on git. Without a git repo
   // these operations silently produce empty results, leading to data loss.
   try {
-    execSync('git rev-parse --git-dir', { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 });
+    execSync('git rev-parse --git-dir', { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000, maxBuffer: MAX_EXEC_BUFFER });
   } catch (_) {
     console.error('[Evolver] FATAL: Not a git repository (' + REPO_ROOT + ').');
     console.error('[Evolver] Evolver requires git for rollback, blast radius calculation, and solidify.');
@@ -2272,7 +2276,7 @@ async function run() {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 4000,
-        windowsHide: true,
+        windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
       });
       baselineUntracked = String(out)
         .split('\n')
@@ -2288,7 +2292,7 @@ async function run() {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 4000,
-        windowsHide: true,
+        windowsHide: true, maxBuffer: MAX_EXEC_BUFFER
       });
       baselineHead = String(out || '').trim() || null;
     } catch (e) {

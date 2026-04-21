@@ -7,6 +7,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 
 function findEvolverRoot() {
   const candidates = [
@@ -51,12 +55,12 @@ function getGitDiffStats() {
     const stat = execSync('git diff --stat HEAD~1 2>/dev/null || git diff --stat 2>/dev/null || echo ""', {
       cwd,
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 5000, maxBuffer: MAX_EXEC_BUFFER
     }).trim();
     const diffContent = execSync('git diff HEAD~1 --no-color 2>/dev/null || git diff --no-color 2>/dev/null || echo ""', {
       cwd,
       encoding: 'utf8',
-      timeout: 5000,
+      timeout: 5000, maxBuffer: MAX_EXEC_BUFFER
     }).trim();
     const filesChanged = (stat.match(/\d+ files? changed/) || ['0'])[0];
     const insertions = (stat.match(/(\d+) insertions?/) || [null, '0'])[1];
@@ -106,7 +110,7 @@ function recordToHub(outcome) {
       + ` -H "Authorization: Bearer ${apiKey}"`
       + ` -d '${payload.replace(/'/g, "'\\''")}'`
       + ` "${hubUrl.replace(/\/+$/, '')}/a2a/evolution/record"`;
-    execSync(curlCmd, { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] });
+    execSync(curlCmd, { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER });
     return true;
   } catch {
     return false;

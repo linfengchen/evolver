@@ -34,7 +34,9 @@ describe('sandboxExecutor.runInSandbox', function () {
   const isWin = process.platform === 'win32';
 
   it('runs a passing command inside an isolated temp dir', async function () {
-    const cmd = isWin ? 'echo hello-sandbox && cd' : 'echo hello-sandbox && pwd';
+    // v1.69.8: shell chaining (&&) is no longer accepted; use a single node
+    // invocation that prints both the marker string and cwd.
+    const cmd = 'node -e "console.log(\'hello-sandbox\'); console.log(process.cwd())"';
     const out = await sandbox.runInSandbox([cmd], {});
     assert.equal(out.results.length, 1);
     assert.equal(out.overallOk, true);
@@ -45,10 +47,11 @@ describe('sandboxExecutor.runInSandbox', function () {
   });
 
   it('stops at first failure and reports overallOk=false', async function () {
+    // v1.69.8: `exit 2` was a shell-builtin; use `node -e "process.exit(2)"`.
     const out = await sandbox.runInSandbox([
-      'echo first',
-      'exit 2',
-      'echo should-not-run',
+      'node -e "console.log(\'first\')"',
+      'node -e "process.exit(2)"',
+      'node -e "console.log(\'should-not-run\')"',
     ], {});
     assert.equal(out.overallOk, false);
     assert.equal(out.stoppedEarly, true);
@@ -59,14 +62,16 @@ describe('sandboxExecutor.runInSandbox', function () {
   });
 
   it('enforces per-command timeout (kills long-running commands)', async function () {
-    const longCmd = isWin ? 'ping -n 6 127.0.0.1 > nul' : 'sleep 5';
+    // v1.69.8: `sleep 5` / `ping ...` are no longer in the allowlist.
+    // Use a pure-Node sleep to reach the timeout path.
+    const longCmd = 'node -e "setTimeout(()=>{},5000)"';
     const out = await sandbox.runInSandbox([longCmd], { cmdTimeoutMs: 300 });
     assert.equal(out.overallOk, false);
     assert.equal(out.results[0].timedOut, true);
   });
 
   it('cleans up sandbox directory after execution', async function () {
-    const cmd = isWin ? 'cd' : 'pwd';
+    const cmd = 'node -e "console.log(process.cwd())"';
     let captured;
     const out = await sandbox.runInSandbox([cmd], { keepSandbox: true });
     captured = out.sandboxDir;
@@ -82,6 +87,20 @@ describe('sandboxExecutor.runInSandbox', function () {
     const out = await sandbox.runInSandbox([], {});
     assert.equal(out.reason, 'no_commands');
     assert.equal(out.overallOk, false);
+  });
+
+  it('rejects non-allowlisted executables (v1.69.8 hardening)', async function () {
+    const out = await sandbox.runInSandbox(['bash -c "echo pwn"'], {});
+    assert.equal(out.overallOk, false);
+    assert.equal(out.results[0].ok, false);
+    assert.match(out.results[0].stderr || '', /executable_not_allowed/);
+  });
+
+  it('rejects shell metacharacters (v1.69.8 hardening)', async function () {
+    const out = await sandbox.runInSandbox(['node -e "1" && echo pwn'], {});
+    assert.equal(out.overallOk, false);
+    assert.equal(out.results[0].ok, false);
+    assert.match(out.results[0].stderr || '', /command_parse_failed/);
   });
 });
 
@@ -172,7 +191,10 @@ describe('validator.runValidatorCycle', function () {
                 task_id: 'vt_fail',
                 nonce: 'nonce_abc',
                 asset_id: 'asset_x',
-                validation_commands: ['echo ok', 'exit 1'],
+                validation_commands: [
+                'node -e "console.log(\'ok\')"',
+                'node -e "process.exit(1)"',
+              ],
                 expires_at: new Date(Date.now() + 60000).toISOString(),
               },
             ],
@@ -209,7 +231,10 @@ describe('validator.runValidatorCycle', function () {
               {
                 task_id: 'vt_ok',
                 nonce: 'nonce_xyz',
-                validation_commands: ['echo alpha', 'echo beta'],
+                validation_commands: [
+                'node -e "console.log(\'alpha\')"',
+                'node -e "console.log(\'beta\')"',
+              ],
               },
             ],
           },

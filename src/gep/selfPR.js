@@ -10,6 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 const { getEvolutionDir, getRepoRoot } = require('./paths');
 const { fullLeakCheck, redactString } = require('./sanitize');
 const {
@@ -203,7 +207,7 @@ function runGh(args, opts) {
       timeout: timeoutMs,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: Object.assign({}, process.env),
+      env: Object.assign({}, process.env), maxBuffer: MAX_EXEC_BUFFER
     });
     return { ok: true, out: String(result || '').trim() };
   } catch (e) {
@@ -218,7 +222,7 @@ function getGitDiff(changedFiles, repoRoot) {
     try {
       const result = execSync(
         'git diff HEAD -- "' + f + '"',
-        { cwd: repoRoot, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+        { cwd: repoRoot, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER }
       );
       if (result && result.trim()) parts.push(result.trim());
     } catch (_) {}
@@ -226,7 +230,7 @@ function getGitDiff(changedFiles, repoRoot) {
       try {
         const result = execSync(
           'git diff -- "' + f + '"',
-          { cwd: repoRoot, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+          { cwd: repoRoot, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER }
         );
         if (result && result.trim()) parts.push(result.trim());
       } catch (_) {}
@@ -314,7 +318,7 @@ async function maybeCreatePR({ capsule, event, mutation, gene, blastRadius }) {
     }
 
     try {
-      execSync('git checkout -b "' + branch + '"', { cwd: tmpDir, timeout: 10000 });
+      execSync('git checkout -b "' + branch + '"', { cwd: tmpDir, timeout: 10000, maxBuffer: MAX_EXEC_BUFFER });
     } catch (e) {
       console.warn('[SelfPR] Branch creation failed: ' + (e.message || e));
       return { attempted: false, reason: 'branch_failed' };
@@ -331,8 +335,8 @@ async function maybeCreatePR({ capsule, event, mutation, gene, blastRadius }) {
     }
 
     try {
-      execSync('git add -A', { cwd: tmpDir, timeout: 10000 });
-      const statusOut = execSync('git status --porcelain', { cwd: tmpDir, timeout: 10000, encoding: 'utf8' });
+      execSync('git add -A', { cwd: tmpDir, timeout: 10000, maxBuffer: MAX_EXEC_BUFFER });
+      const statusOut = execSync('git status --porcelain', { cwd: tmpDir, timeout: 10000, encoding: 'utf8', maxBuffer: MAX_EXEC_BUFFER });
       if (!statusOut || !statusOut.trim()) {
         console.log('[SelfPR] No changes to commit in public repo clone.');
         return { attempted: false, reason: 'no_public_diff' };

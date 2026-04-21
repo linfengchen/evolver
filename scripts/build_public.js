@@ -151,10 +151,49 @@ function rewritePackageJson(outDirAbs) {
       'a2a:ingest': 'node scripts/a2a_ingest.js',
       'a2a:promote': 'node scripts/a2a_promote.js',
     };
+    // Explicitly list what ships in the npm tarball so that `scripts/` (including
+    // `scripts/validate-*.js`, required by runtime self-repair) are always
+    // included. See GH issue #453 where `.npmignore` inherited from the private
+    // dev repo excluded `/scripts/` and shipped a broken package to npm.
+    pkg.files = [
+      'assets/',
+      'index.js',
+      'src/',
+      'scripts/',
+      'README.md',
+      'README.zh-CN.md',
+      'README.ja-JP.md',
+      'SKILL.md',
+      'CONTRIBUTING.md',
+      'LICENSE',
+    ];
     fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
   } catch (e) {
     // ignore
   }
+}
+
+// Write a dist-public specific .npmignore that overrides the private dev's
+// `.npmignore` (which excludes `/scripts/` because scripts are dev-only in
+// private dev). The `files` field in package.json is also used as a belt-and-
+// suspenders to guarantee scripts/ gets shipped. See GH issue #453.
+function writeDistNpmignore(outDirAbs) {
+  const p = path.join(outDirAbs, '.npmignore');
+  const content = [
+    'assets/cover.png',
+    '/test/',
+    '/docs/',
+    '/memory/',
+    '/dist-public/',
+    'docker-compose.test.yml',
+    '.git/',
+    '.gitignore',
+    'CONTRIBUTING.md',
+    'MEMORY.md',
+    'public.manifest.json',
+    '',
+  ].join('\n');
+  fs.writeFileSync(p, content, 'utf8');
 }
 
 function parseSemver(v) {
@@ -435,6 +474,7 @@ function main() {
   applyRewrite(outDirAbs, manifest.rewrite);
   applyRename(outDirAbs, manifest.rename);
   rewritePackageJson(outDirAbs);
+  writeDistNpmignore(outDirAbs);
 
   // Prefer explicit version; otherwise use suggested version.
   const releaseVersion = process.env.RELEASE_VERSION || semver.suggestedVersion;

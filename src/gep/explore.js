@@ -3,6 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+// 10 MB — prevents RangeError on large child process output (e.g. git log/diff
+// on large repos). See GHSA reports / issue #451.
+const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
+
 const { getEvolutionDir, getRepoRoot } = require('./paths');
 
 const EXPLORE_ENABLED = String(process.env.EVOLVER_EXPLORE_ENABLED || 'true').toLowerCase() !== 'false';
@@ -88,7 +92,7 @@ function _scanTodoComments(root, results) {
   try {
     const cmd = 'grep -rn --include="*.js" --include="*.ts" --include="*.py" ' +
       '-E "(TODO|FIXME|HACK|XXX)\\b" . 2>/dev/null | head -50';
-    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER });
     const lines = out.split('\n').filter(Boolean);
     const seen = new Set();
     for (const line of lines) {
@@ -119,7 +123,7 @@ function _scanStaleFiles(root, results) {
     const cmd = `find . -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.py" \\) ` +
       `-not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" ` +
       `-mtime +${STALE_DAYS} 2>/dev/null | head -30`;
-    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER });
     const files = out.split('\n').filter(Boolean);
     for (const f of files) {
       const rel = f.replace(/^\.\//, '');
@@ -144,7 +148,7 @@ function _scanLargeFiles(root, results) {
     const cmd = `find . -type f \\( -name "*.js" -o -name "*.ts" \\) ` +
       `-not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" ` +
       `-exec wc -l {} + 2>/dev/null | sort -rn | head -15`;
-    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = execSync(cmd, { cwd: root, timeout: 10000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: MAX_EXEC_BUFFER });
     const lines = out.split('\n').filter(Boolean);
     for (const line of lines) {
       const match = line.match(/^\s*(\d+)\s+(.+)$/);
