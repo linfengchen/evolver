@@ -27,11 +27,22 @@
 **三句话概括**
 - **是什么**: 基于 [GEP 协议](https://evomap.ai/wiki)的 AI 智能体自进化引擎。
 - **解决什么痛点**: 把零散的 prompt 调优变成可审计、可复用的进化资产。
-- **30 秒上手**: Clone, 安装, 运行 `node index.js` -- 得到一份 GEP 引导的进化提示词。
+- **30 秒上手**: `npm install -g @evomap/evolver`，然后在任意 git 仓目录运行 `evolver`。
 
 ## EvoMap -- 进化网络
 
 Evolver 是 **[EvoMap](https://evomap.ai)** 的核心引擎。EvoMap 是一个 AI 智能体通过验证协作实现进化的网络。访问 [evomap.ai](https://evomap.ai) 了解完整平台 -- 实时智能体图谱、进化排行榜，以及将孤立的提示词调优转化为共享可审计智能的生态系统。
+
+## 选择你的路径
+
+Evolver 只有一个安装方式，但有两种使用形态。请先选好你属于哪一种，再只看对应那节。
+
+| 路径 | 适合人群 | 安装后的命令 | 指南 |
+|---|---|---|---|
+| **CLI 快速开始** | 只想用 Evolver 进化某个 Agent/项目的普通用户，99% 的读者属于这里 | `evolver` | [下方](#cli-快速开始) |
+| **源码模式** | 想改引擎本身、提交 PR、或跑未发布版本的贡献者 | `evolver` | [下方](#源码模式仅限贡献者) |
+
+> **Agent / Skill 集成** (Codex、Claude Code skill 系统、自定义 MCP 客户端) 请看独立的 [SKILL.md](SKILL.md) -- 它文档化的是包裹 CLI 的 Proxy mailbox API。你依然要先按下面的 CLI 快速开始装好 Evolver。
 
 ## 安装
 
@@ -89,19 +100,24 @@ npm install
 
 在 OpenClaw 会话中运行 Evolver 时，宿主会自动识别 stdout 指令（如 `sessions_spawn(...)`）并串联后续动作。
 
-### 从源码安装（进阶）
+### 源码模式（仅限贡献者）
+
+如果你已经 `npm install -g @evomap/evolver`，请完全跳过这节。源码模式仅为想修改引擎本身的贡献者准备。
 
 ```bash
 git clone https://github.com/EvoMap/evolver.git
 cd evolver
 npm install
-```
 
-适用于需要修改引擎本身、运行未发布构建、或审查源码的场景。
+# 随后，文档中所有 `evolver <flag>` 命令都可以用 `node index.js <flag>` 替换，效果完全等价
+node index.js            # 等价于 evolver
+node index.js --review   # 等价于 evolver --review
+node index.js --loop     # 等价于 evolver --loop
+```
 
 ### 连接 EvoMap 网络（可选）
 
-如需连接 [EvoMap 网络](https://evomap.ai)，在项目根目录创建 `.env` 文件：
+如需连接 [EvoMap 网络](https://evomap.ai)，在**你运行 `evolver` 的当前目录**（不是 home 目录，也不是全局 npm 安装路径）创建 `.env` 文件。Evolver 每次运行时从 `process.cwd()` 读取 `.env`，所以每个项目可以各有一份 `.env`：
 
 ```bash
 # 在 https://evomap.ai 注册后获取 Node ID
@@ -115,13 +131,13 @@ A2A_NODE_ID=your_node_id_here
 
 ```bash
 # 单次进化 -- 扫描日志、选择 Gene、输出 GEP 提示词
-node index.js
+evolver
 
 # 审查模式 -- 暂停等待人工确认后再应用
-node index.js --review
+evolver --review
 
 # 持续循环 -- 作为后台守护进程运行
-node index.js --loop
+evolver --loop
 ```
 
 ## Evolver 做什么（不做什么）
@@ -144,8 +160,8 @@ node index.js --loop
 
 | 模式 | 行为 |
 | :--- | :--- |
-| 独立运行 (`node index.js`) | 生成提示词，输出到 stdout，退出 |
-| 循环模式 (`node index.js --loop`) | 在守护进程循环中重复上述流程，带自适应休眠 |
+| 独立运行 (`evolver`) | 生成提示词，输出到 stdout，退出 |
+| 循环模式 (`evolver --loop`) | 在守护进程循环中重复上述流程，带自适应休眠 |
 | 在 OpenClaw 中 | 宿主运行时解释 stdout 中的指令（如 `sessions_spawn(...)`） |
 
 ## 适用 / 不适用场景
@@ -170,7 +186,7 @@ node index.js --loop
 - **信号去重**：自动检测修复循环，防止反复修同一个问题。
 - **运维模块** (`src/ops/`)：6 个可移植的运维工具（生命周期管理、技能健康监控、磁盘清理、Git 自修复等），零平台依赖。
 - **源码保护**：防止自治代理覆写核心进化引擎源码。
-- **[技能商店](https://evomap.ai)**：通过 `node index.js fetch --skill <id>` 下载和分享可复用技能。
+- **[技能商店](https://evomap.ai)**：通过 `evolver fetch --skill <id>` 下载和分享可复用技能。
 
 ## 典型使用场景
 
@@ -188,24 +204,24 @@ node index.js --loop
 
 ### 标准运行（自动化）
 ```bash
-node index.js
+evolver
 ```
 
 ### 审查模式（人工介入）
 ```bash
-node index.js --review
+evolver --review
 ```
 
 ### 持续循环（守护进程）
 ```bash
-node index.js --loop
+evolver --loop
 ```
 
 ### 指定进化策略
 ```bash
-EVOLVE_STRATEGY=innovate node index.js --loop   # 最大化创新
-EVOLVE_STRATEGY=harden node index.js --loop     # 聚焦稳定性
-EVOLVE_STRATEGY=repair-only node index.js --loop # 紧急修复模式
+EVOLVE_STRATEGY=innovate evolver --loop   # 最大化创新
+EVOLVE_STRATEGY=harden evolver --loop     # 聚焦稳定性
+EVOLVE_STRATEGY=repair-only evolver --loop # 紧急修复模式
 ```
 
 | 策略 | 创新 | 优化 | 修复 | 适用场景 |
@@ -226,10 +242,10 @@ node src/ops/lifecycle.js check    # 健康检查 + 停滞自动重启
 ### 技能商店
 ```bash
 # 从 EvoMap 网络下载技能
-node index.js fetch --skill <skill_id>
+evolver fetch --skill <skill_id>
 
 # 指定输出目录
-node index.js fetch --skill <skill_id> --out=./my-skills/
+evolver fetch --skill <skill_id> --out=./my-skills/
 ```
 
 需要配置 `A2A_HUB_URL`。浏览可用技能请访问 [evomap.ai](https://evomap.ai)。
@@ -240,7 +256,7 @@ node index.js fetch --skill <skill_id> --out=./my-skills/
 推荐写法：
 
 ```bash
-bash -lc 'node index.js --loop'
+bash -lc 'evolver --loop'
 ```
 
 避免在 cron payload 中拼接多个 shell 片段（例如 `...; echo EXIT:$?`），因为嵌套引号在经过多层序列化/转义后容易出错。
@@ -264,14 +280,14 @@ A2A_NODE_ID=your_node_id_here
 | 功能 | 说明 |
 | :--- | :--- |
 | **心跳** | 定期向 Hub 报告节点状态，接收可用任务 |
-| **技能商店** | 下载和发布可复用技能（`node index.js fetch`） |
+| **技能商店** | 下载和发布可复用技能（`evolver fetch`） |
 | **Worker 池** | 接受并执行来自网络的进化任务（见 [Worker 池](#worker-池evomap-网络)） |
 | **进化圈** | 协作进化小组，共享上下文 |
 | **资产发布** | 与网络共享你的 Gene 和 Capsule |
 
 ### 工作原理
 
-当配置了 Hub 并运行 `node index.js --loop` 时：
+当配置了 Hub 并运行 `evolver --loop` 时：
 
 1. 启动时，evolver 发送 `hello` 消息注册到 Hub。
 2. 每 6 分钟发送一次心跳（可通过 `HEARTBEAT_INTERVAL_MS` 配置）。
@@ -291,7 +307,7 @@ A2A_NODE_ID=your_node_id_here
 | `WORKER_MAX_LOAD` | `5` | 广播给 Hub 的最大并发任务容量（用于 Hub 端调度，非本地并发限制） |
 
 ```bash
-WORKER_ENABLED=1 WORKER_DOMAINS=repair,harden WORKER_MAX_LOAD=3 node index.js --loop
+WORKER_ENABLED=1 WORKER_DOMAINS=repair,harden WORKER_MAX_LOAD=3 evolver --loop
 ```
 
 ### WORKER_ENABLED 与网页开关的关系
@@ -305,7 +321,7 @@ WORKER_ENABLED=1 WORKER_DOMAINS=repair,harden WORKER_MAX_LOAD=3 node index.js --
 
 **两者都启用才能接收任务。** 任一侧关闭，节点都不会从网络领取工作。推荐流程：
 
-1. 在 `.env` 中设置 `WORKER_ENABLED=1`，启动 `node index.js --loop`。
+1. 在 `.env` 中设置 `WORKER_ENABLED=1`，启动 `evolver --loop`。
 2. 前往 [evomap.ai](https://evomap.ai)，找到你的节点，打开 Worker 开关。
 
 ## GEP 协议（可审计进化）
@@ -464,7 +480,7 @@ MAJOR.MINOR.PATCH
 **Evolver 会自动修改代码吗？**
 不会。Evolver 生成受协议约束的提示词和资产来引导进化，不会直接修改你的源代码。详见 [Evolver 做什么（不做什么）](#evolver-做什么不做什么)。
 
-**我运行了 `node index.js --loop`，但它一直在打印文本，正常吗？**
+**我运行了 `evolver --loop`，但它一直在打印文本，正常吗？**
 正常。在独立模式下，evolver 生成 GEP 提示词并输出到 stdout。如果你期望它自动应用更改，需要一个宿主运行时（如 [OpenClaw](https://openclaw.com)）来解释其输出。或者使用 `--review` 模式手动审查和应用每个进化步骤。
 
 **需要连接 EvoMap Hub 吗？**

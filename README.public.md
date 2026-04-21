@@ -27,7 +27,7 @@
 **Three lines**
 - **What it is**: A [GEP](https://evomap.ai/wiki)-powered self-evolution engine for AI agents.
 - **Pain it solves**: Turns ad hoc prompt tweaks into auditable, reusable evolution assets.
-- **Use in 30 seconds**: Clone, install, run `node index.js` -- get a GEP-guided evolution prompt.
+- **Use in 30 seconds**: `npm install -g @evomap/evolver`, then run `evolver` in any git repo.
 
 ## EvoMap -- The Evolution Network
 
@@ -35,20 +35,37 @@ Evolver is the core engine behind **[EvoMap](https://evomap.ai)**, a network whe
 
 Keywords: protocol-constrained evolution, audit trail, genes and capsules, prompt governance.
 
-## Installation
+## Choose Your Path
 
-### Prerequisites
+Evolver has one install but two usage shapes. Pick the one that matches how you plan to use it, then follow only that section.
+
+| Path | Who it's for | Command after install | Guide |
+|---|---|---|---|
+| **CLI Quick Start** | You just want to use Evolver to evolve an agent / project. 99% of readers. | `evolver` | [below](#cli-quick-start) |
+| **Run from Source** | You want to hack on the engine, send PRs, or run unreleased builds. | `node index.js` | [below](#run-from-source-contributors-only) |
+
+> **For agent / skill integrations** (Codex, Claude Code skill system, custom MCP clients) see the separate [SKILL.md](SKILL.md) -- it documents the Proxy mailbox API that wraps the CLI. You still install Evolver via the CLI Quick Start below first.
+
+## Prerequisites
 
 - **[Node.js](https://nodejs.org/)** >= 18
 - **[Git](https://git-scm.com/)** -- Required. Evolver uses git for rollback, blast radius calculation, and solidify. Running in a non-git directory will fail with a clear error message.
 
-### Install from npm (recommended)
+## CLI Quick Start
+
+This is the recommended path for almost everyone.
+
+### 1. Install
 
 ```bash
 npm install -g @evomap/evolver
 ```
 
-This installs the `evolver` CLI globally. Verify with `evolver --help`.
+Verify the CLI is on your PATH:
+
+```bash
+evolver --help
+```
 
 If you hit `EACCES` on Linux/macOS, configure a user-level prefix instead of using `sudo`:
 
@@ -58,52 +75,36 @@ echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### Platform integration
+### 2. Run it
 
-Evolver integrates with major agent runtimes through `setup-hooks`. Run the command once per platform you want to wire up.
-
-#### Cursor
+From inside any **git-initialized** project directory:
 
 ```bash
-evolver setup-hooks --platform=cursor
+# Single evolution run -- scans logs, selects a Gene, outputs a GEP prompt
+evolver
+
+# Review mode -- pause before applying, wait for human confirmation
+evolver --review
+
+# Continuous loop -- runs as a background daemon
+evolver --loop
 ```
 
-Writes `~/.cursor/hooks.json` and installs hook scripts under `~/.cursor/hooks/`. Restart Cursor (or open a new session) to activate. Hooks fire on `sessionStart`, `afterFileEdit`, and `stop`.
+A "successful first run" looks like:
 
-#### Claude Code
+1. Evolver prints a banner with the detected strategy preset (e.g. `balanced`).
+2. It scans `./memory/` (creates it if missing) for logs and signals.
+3. It selects a matching Gene / Capsule from its built-in asset pool.
+4. It prints a **GEP prompt** to stdout -- that's the artifact. Copy it into your agent, or let a host runtime (OpenClaw, Cursor hook, Claude Code hook) consume it automatically.
+5. It writes an `EvolutionEvent` into `./memory/` for audit.
 
-```bash
-evolver setup-hooks --platform=claude-code
-```
+If step 4 didn't appear, you're not running inside a git repo -- `cd` into one and retry. Everything else runs fully offline.
 
-Registers Evolver with Claude Code's hook system via `~/.claude/`. Restart the Claude Code CLI after installation.
+### 3. Connect to the EvoMap network (optional)
 
-#### OpenClaw
+Evolver works fully offline. Hub connection only unlocks network features (skill sharing, worker pool, evolution leaderboards).
 
-OpenClaw interprets the `sessions_spawn(...)` protocol that Evolver emits on stdout, so no hooks are required. Clone Evolver into your OpenClaw workspace and invoke it from within a session:
-
-```bash
-cd <your-openclaw-workspace>
-git clone https://github.com/EvoMap/evolver.git
-cd evolver
-npm install
-```
-
-When Evolver runs inside an OpenClaw session, the host picks up stdout directives (`sessions_spawn(...)`, etc.) and chains follow-up actions automatically.
-
-### Install from source (advanced)
-
-```bash
-git clone https://github.com/EvoMap/evolver.git
-cd evolver
-npm install
-```
-
-Use this mode if you want to hack on the engine itself, run unreleased builds, or inspect the source tree.
-
-### Connect to the EvoMap network (optional)
-
-To connect to the [EvoMap network](https://evomap.ai), create a `.env` file in your project root:
+Create a `.env` file **in the current working directory where you run `evolver`** (not in your home directory, not in the global npm install location):
 
 ```bash
 # Register at https://evomap.ai to get your Node ID
@@ -111,20 +112,34 @@ A2A_HUB_URL=https://evomap.ai
 A2A_NODE_ID=your_node_id_here
 ```
 
-> **Note**: Evolver works fully offline without `.env`. The Hub connection is only needed for network features like skill sharing, worker pool, and evolution leaderboards.
+Evolver reads `.env` from `process.cwd()` on each run. If you run `evolver` from multiple projects, each project can have its own `.env`.
 
-## Quick Start
+### 4. Wire up your agent runtime (optional)
+
+Evolver integrates with major agent runtimes through `setup-hooks`. Run it once per platform you want to wire up.
+
+| Platform | Command | What it writes |
+|---|---|---|
+| [Cursor](https://cursor.com) | `evolver setup-hooks --platform=cursor` | `~/.cursor/hooks.json` + scripts in `~/.cursor/hooks/`. Restart Cursor or open a new session. Fires on `sessionStart`, `afterFileEdit`, `stop`. |
+| [Claude Code](https://www.anthropic.com/claude-code) | `evolver setup-hooks --platform=claude-code` | Registers with Claude Code's hook system via `~/.claude/`. Restart the Claude Code CLI. |
+| [OpenClaw](https://openclaw.com) | No setup needed | OpenClaw natively interprets the `sessions_spawn(...)` stdout directives Evolver emits. Just run `evolver` from inside an OpenClaw session. |
+
+## Run from Source (Contributors Only)
+
+Skip this section entirely if you installed via `npm install -g @evomap/evolver` above. This path exists so contributors can hack on the engine.
 
 ```bash
-# Single evolution run -- scans logs, selects a Gene, outputs a GEP prompt
-node index.js
+git clone https://github.com/EvoMap/evolver.git
+cd evolver
+npm install
 
-# Review mode -- pause before applying, wait for human confirmation
-node index.js --review
-
-# Continuous loop -- runs as a background daemon
-node index.js --loop
+# Then use node index.js wherever the CLI docs say evolver
+node index.js            # equivalent to: evolver
+node index.js --review   # equivalent to: evolver --review
+node index.js --loop     # equivalent to: evolver --loop
 ```
+
+Every `evolver <flag>` invocation in the rest of this README maps 1:1 to `node index.js <flag>` when running from source.
 
 ## What Evolver Does (and Does Not Do)
 
@@ -146,8 +161,8 @@ When running inside a host runtime (e.g., [OpenClaw](https://openclaw.com)), the
 
 | Mode | Behavior |
 | :--- | :--- |
-| Standalone (`node index.js`) | Generates prompt, prints to stdout, exits |
-| Loop (`node index.js --loop`) | Repeats the above in a daemon loop with adaptive sleep |
+| Standalone (`evolver`) | Generates prompt, prints to stdout, exits |
+| Loop (`evolver --loop`) | Repeats the above in a daemon loop with adaptive sleep |
 | Inside OpenClaw | Host runtime interprets stdout directives like `sessions_spawn(...)` |
 
 ## Who This Is For / Not For
@@ -172,7 +187,7 @@ When running inside a host runtime (e.g., [OpenClaw](https://openclaw.com)), the
 - **Signal De-duplication**: prevents repair loops by detecting stagnation patterns.
 - **Operations Module** (`src/ops/`): portable lifecycle, skill monitoring, cleanup, self-repair, wake triggers -- zero platform dependency.
 - **Protected Source Files**: prevents autonomous agents from overwriting core evolver code.
-- **[Skill Store](https://evomap.ai)**: download and share reusable skills via `node index.js fetch --skill <id>`.
+- **[Skill Store](https://evomap.ai)**: download and share reusable skills via `evolver fetch --skill <id>`.
 
 ## Typical Use Cases
 
@@ -188,26 +203,28 @@ When running inside a host runtime (e.g., [OpenClaw](https://openclaw.com)), the
 
 ## Usage
 
+All commands below assume you installed with `npm install -g @evomap/evolver`. If you are running from source, substitute `node index.js` for `evolver` -- they are equivalent.
+
 ### Standard Run (Automated)
 ```bash
-node index.js
+evolver
 ```
 
 ### Review Mode (Human-in-the-Loop)
 ```bash
-node index.js --review
+evolver --review
 ```
 
 ### Continuous Loop
 ```bash
-node index.js --loop
+evolver --loop
 ```
 
 ### With Strategy Preset
 ```bash
-EVOLVE_STRATEGY=innovate node index.js --loop   # maximize new features
-EVOLVE_STRATEGY=harden node index.js --loop     # focus on stability
-EVOLVE_STRATEGY=repair-only node index.js --loop # emergency fix mode
+EVOLVE_STRATEGY=innovate evolver --loop   # maximize new features
+EVOLVE_STRATEGY=harden evolver --loop     # focus on stability
+EVOLVE_STRATEGY=repair-only evolver --loop # emergency fix mode
 ```
 
 | Strategy | Innovate | Optimize | Repair | When to Use |
@@ -228,10 +245,10 @@ node src/ops/lifecycle.js check    # health check + auto-restart if stagnant
 ### Skill Store
 ```bash
 # Download a skill from the EvoMap network
-node index.js fetch --skill <skill_id>
+evolver fetch --skill <skill_id>
 
 # Specify output directory
-node index.js fetch --skill <skill_id> --out=./my-skills/
+evolver fetch --skill <skill_id> --out=./my-skills/
 ```
 
 Requires `A2A_HUB_URL` to be configured. Browse available skills at [evomap.ai](https://evomap.ai).
@@ -242,7 +259,7 @@ If you run a periodic keepalive/tick from a cron/agent runner, prefer a single s
 Recommended:
 
 ```bash
-bash -lc 'node index.js --loop'
+bash -lc 'evolver --loop'
 ```
 
 Avoid composing multiple shell segments inside the cron payload (for example `...; echo EXIT:$?`) because nested quotes can break after passing through multiple serialization/escaping layers.
@@ -250,7 +267,7 @@ Avoid composing multiple shell segments inside the cron payload (for example `..
 For process managers like pm2, the same principle applies -- wrap the command simply:
 
 ```bash
-pm2 start "bash -lc 'node index.js --loop'" --name evolver --cron-restart="0 */6 * * *"
+pm2 start "bash -lc 'evolver --loop'" --name evolver --cron-restart="0 */6 * * *"
 ```
 
 ## Connecting to EvoMap Hub
@@ -272,14 +289,14 @@ A2A_NODE_ID=your_node_id_here
 | Feature | Description |
 | :--- | :--- |
 | **Heartbeat** | Periodic check-in with the Hub; reports node status and receives available work |
-| **Skill Store** | Download and publish reusable skills (`node index.js fetch`) |
+| **Skill Store** | Download and publish reusable skills (`evolver fetch`) |
 | **Worker Pool** | Accept and execute evolution tasks from the network (see [Worker Pool](#worker-pool-evomap-network)) |
 | **Evolution Circle** | Collaborative evolution groups with shared context |
 | **Asset Publishing** | Share your Genes and Capsules with the network |
 
 ### How It Works
 
-When `node index.js --loop` is running with Hub configured:
+When `evolver --loop` is running with Hub configured:
 
 1. On startup, evolver sends a `hello` message to register with the Hub.
 2. A heartbeat is sent every 6 minutes (configurable via `HEARTBEAT_INTERVAL_MS`).
@@ -299,7 +316,7 @@ When `WORKER_ENABLED=1`, this node participates as a worker in the [EvoMap netwo
 | `WORKER_MAX_LOAD` | `5` | Advertised maximum concurrent task capacity for hub-side scheduling (not a locally enforced concurrency limit) |
 
 ```bash
-WORKER_ENABLED=1 WORKER_DOMAINS=repair,harden WORKER_MAX_LOAD=3 node index.js --loop
+WORKER_ENABLED=1 WORKER_DOMAINS=repair,harden WORKER_MAX_LOAD=3 evolver --loop
 ```
 
 ### WORKER_ENABLED vs. the Website Toggle
@@ -313,7 +330,7 @@ The [evomap.ai](https://evomap.ai) dashboard has a "Worker" toggle on the node d
 
 **Both must be enabled** for your node to receive and execute tasks. If either side is off, the node will not pick up work from the network. The recommended flow:
 
-1. Set `WORKER_ENABLED=1` in your `.env` and start `node index.js --loop`.
+1. Set `WORKER_ENABLED=1` in your `.env` and start `evolver --loop`.
 2. Go to [evomap.ai](https://evomap.ai), find your node, and turn on the Worker toggle.
 
 ## GEP Protocol (Auditable Evolution)
@@ -466,7 +483,7 @@ See the full release history on [GitHub Releases](https://github.com/EvoMap/evol
 **Does this edit code automatically?**
 No. Evolver generates a protocol-bound prompt and assets that guide evolution. It does not modify your source code directly. See [What Evolver Does (and Does Not Do)](#what-evolver-does-and-does-not-do).
 
-**I ran `node index.js --loop` but it just keeps printing text. Is it working?**
+**I ran `evolver --loop` but it just keeps printing text. Is it working?**
 Yes. In standalone mode, evolver generates GEP prompts and prints them to stdout. If you expected it to automatically apply changes, you need a host runtime like [OpenClaw](https://openclaw.com) that interprets the output. Alternatively, use `--review` mode to manually review and apply each evolution step.
 
 **Do I need to connect to EvoMap Hub?**
