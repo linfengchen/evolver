@@ -28,7 +28,7 @@ const PROTOCOL_NAME = 'gep-a2a';
 const PROTOCOL_VERSION = '1.0.0';
 const VALID_MESSAGE_TYPES = ['hello', 'publish', 'fetch', 'report', 'decision', 'revoke'];
 
-const NODE_ID_RE = /^node_[a-f0-9]{12}$/;
+const NODE_ID_RE = /^node_[a-f0-9]{12,32}$/;
 const NODE_ID_DIR = path.join(os.homedir(), '.evomap');
 const NODE_ID_FILE = path.join(NODE_ID_DIR, 'node_id');
 const LOCAL_NODE_ID_FILE = path.resolve(__dirname, '..', '..', '.evomap_node_id');
@@ -73,7 +73,15 @@ function getNodeId() {
   if (_cachedNodeId) return _cachedNodeId;
 
   if (process.env.A2A_NODE_ID) {
-    _cachedNodeId = String(process.env.A2A_NODE_ID);
+    const envId = String(process.env.A2A_NODE_ID).trim();
+    if (NODE_ID_RE.test(envId)) {
+      _cachedNodeId = envId;
+      return _cachedNodeId;
+    }
+    console.warn('[a2aProtocol] A2A_NODE_ID=' + envId + ' has an unexpected format ' +
+      '(expected node_<12-32 hex chars>). Using it as-is, but hub may reject it. ' +
+      'Copy the node_id shown on https://evomap.ai after registration.');
+    _cachedNodeId = envId;
     return _cachedNodeId;
   }
 
