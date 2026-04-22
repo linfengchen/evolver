@@ -1,9 +1,18 @@
 #!/usr/bin/env node
+// Load .env BEFORE any internal require so that a2aProtocol and ATP
+// modules see A2A_NODE_SECRET / A2A_NODE_ID / A2A_HUB_URL at first
+// access and never fall back to a stale persisted/cached secret.
+// Reported in #460.
+try {
+  const _path = require('path');
+  const { getRepoRoot: _getRepoRoot } = require('./src/gep/paths');
+  require('dotenv').config({ path: _path.join(_getRepoRoot(), '.env') });
+} catch (e) { /* dotenv is optional */ }
+
 const evolve = require('./src/evolve');
 const { solidify } = require('./src/gep/solidify');
 const path = require('path');
 const { getRepoRoot } = require('./src/gep/paths');
-try { require('dotenv').config({ path: path.join(getRepoRoot(), '.env') }); } catch (e) { console.warn('[Evolver] Warning: dotenv not found or failed to load .env'); }
 const fs = require('fs');
 const { spawn } = require('child_process');
 
