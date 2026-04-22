@@ -24,6 +24,21 @@ function withTempHome(run) {
   const originalUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
+
+  // Also hide the project-local .evomap_node_id fallback so a pre-existing
+  // file from a real run (where evolver was exercised in this checkout)
+  // does not short-circuit _loadPersistedNodeId() and bypass the tmpHome
+  // persist path under test. We stash it and restore in finally.
+  const LOCAL_NODE_ID_FILE = path.resolve(__dirname, '..', '.evomap_node_id');
+  const LOCAL_STASH = LOCAL_NODE_ID_FILE + '.test-stash';
+  let stashed = false;
+  try {
+    if (fs.existsSync(LOCAL_NODE_ID_FILE)) {
+      fs.renameSync(LOCAL_NODE_ID_FILE, LOCAL_STASH);
+      stashed = true;
+    }
+  } catch { /* best effort */ }
+
   try {
     return run(tmpHome);
   } finally {
@@ -32,6 +47,17 @@ function withTempHome(run) {
     if (originalUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = originalUserProfile;
     try { fs.rmSync(tmpHome, { recursive: true, force: true }); } catch {}
+    if (stashed) {
+      try {
+        // Clean any spurious node_id written during the test so restore wins.
+        if (fs.existsSync(LOCAL_NODE_ID_FILE)) fs.rmSync(LOCAL_NODE_ID_FILE);
+        fs.renameSync(LOCAL_STASH, LOCAL_NODE_ID_FILE);
+      } catch { /* best effort */ }
+    } else {
+      // No pre-existing file, but test may have written one via the
+      // LOCAL_NODE_ID_FILE fallback. Clean it up so we leave no trace.
+      try { if (fs.existsSync(LOCAL_NODE_ID_FILE)) fs.rmSync(LOCAL_NODE_ID_FILE); } catch {}
+    }
   }
 }
 
