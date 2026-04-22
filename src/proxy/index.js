@@ -86,6 +86,11 @@ class EvoMapProxy {
       assetFetch: (body) => this._proxyHttp('/a2a/fetch', body),
       assetSearch: (body) => this._proxyHttp('/a2a/assets/search', body),
       assetValidate: (body) => this._proxyHttp('/a2a/validate', body),
+      // ATP passthrough (#460 Bug 2): merchant/consumer flows that used to call
+      // hub directly via src/atp/hubClient.js must route through the proxy when
+      // EVOMAP_PROXY=1 so proxy sees the transaction (for audit + offline queue).
+      atpPost: (endpoint, body) => this._proxyHttp(endpoint, body),
+      atpGet: (endpoint, query) => this._proxyHttp(endpoint, null, { method: 'GET', query }),
     };
 
     const routes = buildRoutes(this.store, proxyHandlers, this.taskMonitor, {
@@ -158,26 +163,47 @@ class EvoMapProxy {
     return this.store;
   }
 
-  async _proxyHttp(path, body) {
+  async _proxyHttp(path, body, opts = {}) {
     if (!this.hubUrl) throw Object.assign(new Error('Hub not configured'), { statusCode: 503 });
 
-    const endpoint = `${this.hubUrl}${path}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
+    const method = (opts.method || 'POST').toUpperCase();
+    const query = opts.query && typeof opts.query === 'object' ? opts.query : null;
+    const timeoutMs = opts.timeoutMs || 30_000;
+
+    let fullPath = path;
+    if (query) {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined && v !== null) qs.set(k, String(v));
+      }
+      const qsString = qs.toString();
+      if (qsString) fullPath += (path.includes('?') ? '&' : '?') + qsString;
+    }
+
+    const endpoint = `${this.hubUrl}${fullPath}`;
+    const init = {
+      method,
       headers: this.lifecycle._buildHeaders(),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
-    });
+      signal: AbortSignal.timeout(timeoutMs),
+    };
+    if (method !== 'GET' && method !== 'HEAD') {
+      init.body = JSON.stringify(body || {});
+    }
+
+    const res = await fetch(endpoint, init);
 
     if (res.status === 403 || res.status === 401) {
       const recovered = await this.lifecycle.reAuthenticate();
       if (recovered) {
-        const retry = await fetch(endpoint, {
-          method: 'POST',
+        const retryInit = {
+          method,
           headers: this.lifecycle._buildHeaders(),
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30_000),
-        });
+          signal: AbortSignal.timeout(timeoutMs),
+        };
+        if (method !== 'GET' && method !== 'HEAD') {
+          retryInit.body = JSON.stringify(body || {});
+        }
+        const retry = await fetch(endpoint, retryInit);
         if (!retry.ok) {
           const text = await retry.text().catch(() => '');
           throw Object.assign(new Error(`Hub ${retry.status}: ${text}`), { statusCode: retry.status });

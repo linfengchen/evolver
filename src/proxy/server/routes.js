@@ -390,6 +390,73 @@ function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
       const hubStatus = await getHubMailboxStatus();
       return { body: hubStatus };
     },
+
+    // -- ATP (Agent Transaction Protocol) passthrough --
+    // #460 Bug 2: src/atp/hubClient.js historically bypassed the proxy and
+    // called the hub directly. When EVOMAP_PROXY=1, hubClient now routes its
+    // traffic here so the proxy is the single egress point (audit + offline
+    // behavior match the rest of the A2A surface).
+    //
+    // Security: sender_id and node_id are FORCED to the proxy's own node_id.
+    // Callers cannot impersonate another node through the proxy, even if they
+    // pass a different sender_id in the body or query string.
+    'POST /atp/order': async ({ body }) => {
+      const override = { ...(body || {}), sender_id: store.getState('node_id') };
+      const result = await proxyHandlers.atpPost('/a2a/atp/order', override);
+      return { body: result };
+    },
+
+    'POST /atp/deliver': async ({ body }) => {
+      const override = { ...(body || {}), sender_id: store.getState('node_id') };
+      const result = await proxyHandlers.atpPost('/a2a/atp/deliver', override);
+      return { body: result };
+    },
+
+    'POST /atp/verify': async ({ body }) => {
+      const override = { ...(body || {}), sender_id: store.getState('node_id') };
+      const result = await proxyHandlers.atpPost('/a2a/atp/verify', override);
+      return { body: result };
+    },
+
+    'POST /atp/settle': async ({ body }) => {
+      const override = { ...(body || {}), sender_id: store.getState('node_id') };
+      const result = await proxyHandlers.atpPost('/a2a/atp/settle', override);
+      return { body: result };
+    },
+
+    'POST /atp/dispute': async ({ body }) => {
+      const override = { ...(body || {}), sender_id: store.getState('node_id') };
+      const result = await proxyHandlers.atpPost('/a2a/atp/dispute', override);
+      return { body: result };
+    },
+
+    'GET /atp/merchant/tier': async ({ query }) => {
+      const nodeId = store.getState('node_id');
+      const result = await proxyHandlers.atpGet('/a2a/atp/merchant/tier', {
+        node_id: query.node_id || nodeId,
+      });
+      return { body: result };
+    },
+
+    'GET /atp/order/:orderId': async ({ params }) => {
+      const result = await proxyHandlers.atpGet('/a2a/atp/order/' + encodeURIComponent(params.orderId));
+      return { body: result };
+    },
+
+    'GET /atp/proofs': async ({ query }) => {
+      const nodeId = store.getState('node_id');
+      const q = { node_id: nodeId };
+      if (query.role) q.role = query.role;
+      if (query.status) q.status = query.status;
+      if (query.limit) q.limit = query.limit;
+      const result = await proxyHandlers.atpGet('/a2a/atp/proofs', q);
+      return { body: result };
+    },
+
+    'GET /atp/policy': async () => {
+      const result = await proxyHandlers.atpGet('/a2a/atp/policy');
+      return { body: result };
+    },
   };
 }
 
