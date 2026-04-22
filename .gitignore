@@ -6,6 +6,8 @@ assets/gep/candidates.jsonl
 assets/gep/external_candidates.jsonl
 assets/gep/failed_capsules.json
 assets/gep/genes.jsonl
+assets/gep/capsules.jsonl
+assets/gep/a2a/
 dist-public/
 
 # Docker / vibe testing

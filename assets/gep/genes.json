@@ -104,7 +104,60 @@
         "node scripts/validate-modules.js ./src/evolve ./src/gep/solidify ./src/gep/policyCheck ./src/gep/mutation ./src/gep/personality",
         "node scripts/validate-suite.js"
       ]
+    },
+    {
+      "type": "Gene",
+      "id": "gene_distilled_s2g-env-vars",
+      "summary": "Vercel environment variable expert guidance. Use when working with .env files, vercel env commands, OIDC tokens, or managing environment-specific configuration.",
+      "category": "optimize",
+      "signals_match": [
+        "use_when_working_with",
+        "env_files",
+        "vercel_env_commands",
+        "oidc_tokens",
+        "vercel_env_pull",
+        "env_local_overwrite",
+        "oidc_token_expiry",
+        "dotenv_cli"
+      ],
+      "preconditions": [
+        "Skill env-vars has just been executed locally"
+      ],
+      "strategy": [
+        "Identify the dominant trigger signals from the Skill description.",
+        "Apply the smallest targeted change that satisfies the Skill workflow.",
+        "Run the Skill validation commands and abort if any fails."
+      ],
+      "constraints": {
+        "max_files": 12,
+        "forbidden_paths": [
+          ".git",
+          "node_modules"
+        ]
+      },
+      "validation": [
+        "node --version"
+      ],
+      "schema_version": "1.6.0",
+      "_source": {
+        "kind": "skill2gep",
+        "skill_name": "env-vars",
+        "skill_platform": "vercel",
+        "skill_hash": "ba0bdb4db2",
+        "rationale_paper": "Wang, Ren, Zhang. From Procedural Skills to Strategy Genes. arXiv:2604.15097",
+        "paper_scope": "code-science (arXiv:2604.15097, 45 tasks, Gemini 3.1 Pro/Flash Lite)",
+        "claims_outside_scope": "assumption",
+        "quality_heuristics": {
+          "strategy_steps": 0,
+          "avoid_count": 0,
+          "validation_declared_count": 0,
+          "validation_runnable_count": 0,
+          "validation_fallback_used": true,
+          "signals_extracted": 4,
+          "preconditions_extracted": 0
+        }
+      },
+      "asset_id": "sha256:4fa74fe34d19564416dfd8e63f3012a1672e86f39c4bff85d1c70524e06b5a2e"
     }
   ]
 }
-

@@ -110,14 +110,47 @@ function geneToSkillMd(gene) {
   if (gene.strategy && gene.strategy.length > 0) {
     lines.push('## Strategy');
     lines.push('');
-    gene.strategy.forEach(function (step, i) {
+    var stepIdx = 0;
+    gene.strategy.forEach(function (step) {
       var text = String(step);
+      // Defensive: legacy genes may still carry "AVOID: ..." steps from
+      // pre-2026-04-21 distillations. Skip them from Strategy -- the dedicated
+      // "## Avoid" section below renders them correctly.
+      if (/^\s*AVOID\s*[:\-]/i.test(text)) return;
+      stepIdx += 1;
       var verb = extractStepVerb(text);
       if (verb) {
-        lines.push((i + 1) + '. **' + verb + '** -- ' + stripLeadingVerb(text));
+        lines.push(stepIdx + '. **' + verb + '** -- ' + stripLeadingVerb(text));
       } else {
-        lines.push((i + 1) + '. ' + text);
+        lines.push(stepIdx + '. ' + text);
       }
+    });
+    lines.push('');
+  }
+
+  // -- Avoid (anti-patterns, pitfalls, hard "do not" rules) --
+  // Prefer the top-level `avoid` field (post-2026-04-21 genes). Fall back to
+  // legacy "AVOID: ..." steps embedded in strategy so pre-existing genes still
+  // surface their anti-patterns in the right section.
+  var avoidItems = [];
+  if (Array.isArray(gene.avoid)) {
+    gene.avoid.forEach(function (a) {
+      var s = String(a || '').trim();
+      if (s) avoidItems.push(s);
+    });
+  }
+  if (avoidItems.length === 0 && Array.isArray(gene.strategy)) {
+    gene.strategy.forEach(function (step) {
+      var text = String(step);
+      var m = text.match(/^\s*AVOID\s*[:\-]\s*(.+)$/i);
+      if (m) avoidItems.push(m[1].trim());
+    });
+  }
+  if (avoidItems.length > 0) {
+    lines.push('## Avoid');
+    lines.push('');
+    avoidItems.forEach(function (a) {
+      lines.push('- ' + a);
     });
     lines.push('');
   }
@@ -171,11 +204,23 @@ function geneToSkillMd(gene) {
  * e.g. "Verify Cursor CLI installation" -> "Verify"
  *      "Run `npm test` to check" -> "Run"
  *      "Configure non-interactive mode" -> "Configure"
+ *
+ * Excludes anti-pattern markers ("AVOID", "DON'T", "NEVER", ...) so they never
+ * get bolded as if they were real action verbs. These should be rendered as
+ * anti-pattern list items in the dedicated "## Avoid" section instead.
  */
 function extractStepVerb(step) {
+  var ANTI_PATTERN_MARKERS = /^(AVOID|DO|DON'?T|NEVER|NOT|STOP|SKIP|IGNORE|FORBIDDEN|WARN|WARNING|CAUTION|NOTE)\b/i;
+  if (ANTI_PATTERN_MARKERS.test(step)) return '';
   // Only match a capitalized verb at the very start (no leading backtick/special chars)
   var match = step.match(/^([A-Z][a-z]+)/);
-  return match ? match[1] : '';
+  if (!match) return '';
+  // Extra safety: do not treat single-capital-letter + no-lowercase abbreviations
+  // (already filtered by the [a-z]+ requirement) or common non-verbs like
+  // "The", "This", "These", "Those" as verbs.
+  var DETERMINERS = new Set(['The', 'This', 'These', 'Those', 'That', 'A', 'An']);
+  if (DETERMINERS.has(match[1])) return '';
+  return match[1];
 }
 
 /**
