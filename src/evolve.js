@@ -1532,6 +1532,9 @@ async function run() {
     if (_lastHubFetchMs > 0 && _elapsed < _idleFetchInterval) {
       skipHubCalls = true;
       console.log('[IdleGating] Saturated with no actionable signals. Skipping Hub API calls (last fetch ' + Math.round(_elapsed / 1000) + 's ago, threshold ' + Math.round(_idleFetchInterval / 1000) + 's).');
+      if (process.env.EVOLVER_DEBUG_TASKS === '1') {
+        console.log('[IdleGating:debug] Task fetch/claim is skipped this cycle because of idle gating. To force Hub fetches on every cycle, lower EVOLVER_IDLE_FETCH_INTERVAL_MS (e.g. =0). To make a signal actionable and bypass the gate, publish signals like bounty_task, external_task, log_error, etc.');
+      }
     } else {
       console.log('[IdleGating] Saturated but fetch interval elapsed (' + Math.round((Date.now() - _lastHubFetchMs) / 1000) + 's). Performing periodic Hub check.');
     }
@@ -1616,6 +1619,16 @@ async function run() {
       const fetchResult = await fetchTasks({ questions: proactiveQuestions });
       const hubTasks = fetchResult.tasks || [];
 
+      const _debugTasks = process.env.EVOLVER_DEBUG_TASKS === '1';
+      if (_debugTasks) {
+        const _myNodeId = (function () {
+          try { return require('./gep/a2aProtocol').getNodeId() || null; } catch { return null; }
+        })();
+        const _openCount = hubTasks.filter(function (t) { return t && t.status === 'open'; }).length;
+        const _claimedMineCount = hubTasks.filter(function (t) { return t && t.status === 'claimed' && _myNodeId && t.claimed_by === _myNodeId; }).length;
+        console.log('[TaskReceiver:debug] fetchTasks returned ' + hubTasks.length + ' task(s) (open=' + _openCount + ', claimed_by_me=' + _claimedMineCount + ')');
+      }
+
       if (fetchResult.questions_created && fetchResult.questions_created.length > 0) {
         const created = fetchResult.questions_created.filter(function(q) { return !q.error; });
         const failed = fetchResult.questions_created.filter(function(q) { return q.error; });
@@ -1656,12 +1669,18 @@ async function run() {
           console.warn('[TaskReceiver] MemoryGraph read failed (task selection proceeds without history):', e && e.message || e);
         }
         const best = selectBestTask(hubTasks, taskMemoryEvents);
+        if (!best && _debugTasks) {
+          console.log('[TaskReceiver:debug] selectBestTask returned null from ' + hubTasks.length + ' task(s); likely no open tasks pass the capability filter (TASK_MIN_CAPABILITY_MATCH=' + (process.env.TASK_MIN_CAPABILITY_MATCH || '0.1') + '). Lower TASK_MIN_CAPABILITY_MATCH=0 or set TASK_STRATEGY=greedy to force claim anyway.');
+        }
         if (best) {
           const alreadyClaimed = best.status === 'claimed';
           let claimed = alreadyClaimed;
           if (!alreadyClaimed) {
             const commitDeadline = estimateCommitmentDeadline(best);
             claimed = await claimTask(best.id || best.task_id, commitDeadline ? { commitment_deadline: commitDeadline } : undefined);
+            if (_debugTasks && !claimed) {
+              console.log('[TaskReceiver:debug] claimTask("' + (best.id || best.task_id) + '") returned false -- Hub rejected the claim (already claimed by another node, task closed, or auth failure). Check Hub /a2a/task/claim response manually to confirm.');
+            }
             if (claimed && commitDeadline) {
               best._commitment_deadline = commitDeadline;
               console.log(`[Commitment] Deadline set: ${commitDeadline}`);
@@ -1676,6 +1695,8 @@ async function run() {
             console.log(`[TaskReceiver] ${alreadyClaimed ? 'Resuming' : 'Claimed'} task: "${best.title || best.id}" (${taskSignals.length} signals injected)`);
           }
         }
+      } else if (_debugTasks) {
+        console.log('[TaskReceiver:debug] Hub returned 0 tasks this cycle. Either no open bounties match your node, or the fetch call hit a non-2xx status (set EVOLVER_DEBUG_A2A=1 for HTTP-level detail).');
       }
     } catch (e) {
       console.log(`[TaskReceiver] Fetch/claim failed (non-fatal): ${e.message}`);
