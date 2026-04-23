@@ -248,6 +248,26 @@ async function main() {
           console.warn('[ATP] Auto-init failed: ' + (atpInitErr && atpInitErr.message || atpInitErr));
         }
 
+        // ATP: opt-in capability-gap auto-buyer (default OFF, must be explicitly enabled).
+        try {
+          const autoBuyRaw = (process.env.EVOLVER_ATP_AUTOBUY || 'off').toLowerCase().trim();
+          const autoBuyOn = autoBuyRaw === 'on' || autoBuyRaw === '1' || autoBuyRaw === 'true';
+          if (autoBuyOn) {
+            const hubUrl = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || '';
+            if (hubUrl) {
+              const { autoBuyer } = require('./src/atp');
+              autoBuyer.start({
+                dailyCap: Number(process.env.ATP_AUTOBUY_DAILY_CAP_CREDITS) || undefined,
+                perOrderCap: Number(process.env.ATP_AUTOBUY_PER_ORDER_CAP_CREDITS) || undefined,
+              });
+            } else {
+              console.warn('[ATP-AutoBuyer] EVOLVER_ATP_AUTOBUY=on but no hub URL configured, skipping.');
+            }
+          }
+        } catch (autoBuyInitErr) {
+          console.warn('[ATP-AutoBuyer] Init failed: ' + (autoBuyInitErr && autoBuyInitErr.message || autoBuyInitErr));
+        }
+
         // Hoist module refs used inside the loop to avoid repeated module lookups per cycle
         const idleScheduler = require('./src/gep/idleScheduler');
         const { shouldDistillFromFailures: shouldDF, autoDistillFromFailures: autoDF } = require('./src/gep/skillDistiller');
@@ -932,8 +952,36 @@ async function main() {
       process.exit(1);
     }
 
+  } else if (command === 'buy' || command === 'orders' || command === 'verify') {
+    try {
+      const atpCli = require('./src/atp/cli');
+      const subArgs = args.slice(1); // drop the command token (e.g. "buy") itself
+      let parsed;
+      let runner;
+      if (command === 'buy') {
+        parsed = atpCli.parseBuyArgs(subArgs);
+        runner = atpCli.runBuy;
+      } else if (command === 'orders') {
+        parsed = atpCli.parseOrdersArgs(subArgs);
+        runner = atpCli.runOrders;
+      } else {
+        parsed = atpCli.parseVerifyArgs(subArgs);
+        runner = atpCli.runVerify;
+      }
+      if (!parsed.ok) {
+        console.error('[ATP] ' + parsed.error);
+        console.error(atpCli.printUsage());
+        process.exit(2);
+      }
+      const res = await runner(parsed.opts);
+      process.exit(res && typeof res.exitCode === 'number' ? res.exitCode : 0);
+    } catch (atpCliErr) {
+      console.error('[ATP] CLI error:', atpCliErr && atpCliErr.message || atpCliErr);
+      process.exit(1);
+    }
+
   } else {
-    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks] [--loop]
+    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks|buy|orders|verify] [--loop]
   - fetch flags:
     - --skill=<id> | -s <id>   (skill ID to download)
     - --out=<dir>              (output directory, default: ./skills/<skill_id>)
@@ -957,6 +1005,22 @@ async function main() {
     - --last=<N>               (show last N entries)
     - --since=<ISO_date>       (entries after date)
     - --json                   (raw JSON output)
+
+  ATP (Agent Transaction Protocol) subcommands:
+  - buy <caps>                 (place an ATP order; caps is comma-separated)
+    - --budget=<N>             (credits to spend, default 10)
+    - --question="..."         (order description)
+    - --routing=<mode>         (fastest|cheapest|auction|swarm, default fastest)
+    - --verify=<mode>          (auto|ai_judge|bilateral, default auto)
+    - --no-wait                (return immediately after placing)
+    - --timeout=<seconds>      (lifecycle timeout, default 300)
+  - orders                     (list your recent ATP orders / deliveries)
+    - --role=consumer|merchant (default consumer)
+    - --status=pending|verified|disputed|settled
+    - --limit=<N>              (1..100, default 20)
+    - --json                   (raw JSON)
+  - verify <orderId>           (confirm delivery or trigger AI judge)
+    - --action=confirm|ai_judge (default confirm)
 
 Validator role (decentralized validation, default ON since v1.69.0):
   - EVOLVER_VALIDATOR_ENABLED=0    opt out (env beats persisted flag and default)

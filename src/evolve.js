@@ -1950,6 +1950,42 @@ async function run() {
     console.log('[IdleGating] hubSearch skipped (idle cycle).');
   }
 
+  // ATP Auto-Buyer: only trigger when (1) hub search missed, (2) capability_gap is
+  // explicitly present, and (3) the auto-buyer was started at boot. Never blocks
+  // the evolve loop -- all failures are non-fatal and swallowed.
+  try {
+    const hasCapabilityGap = Array.isArray(signals) && signals.includes('capability_gap');
+    const hubMissed = !(hubHit && hubHit.hit);
+    if (hasCapabilityGap && hubMissed) {
+      const autoBuyer = require('./atp/autoBuyer');
+      if (autoBuyer && autoBuyer.isStarted && autoBuyer.isStarted()) {
+        const capsFromSignals = signals
+          .filter(function (s) { return typeof s === 'string' && s.startsWith('cap:'); })
+          .map(function (s) { return s.slice(4); });
+        const capabilities = capsFromSignals.length > 0 ? capsFromSignals : ['code_evolution'];
+        autoBuyer.considerOrder({
+          capabilities: capabilities,
+          question: 'Capability gap detected by evolver: ' + signals.slice(0, 10).join(','),
+          signals: signals.slice(0, 20),
+          routingMode: 'fastest',
+          verifyMode: 'auto',
+        }).then(function (r) {
+          if (r && r.ok) {
+            console.log('[ATP-AutoBuyer] Placed order for capability_gap: ' + ((r.data && r.data.order_id) || 'unknown'));
+          } else if (r && r.skipped) {
+            console.log('[ATP-AutoBuyer] Skipped (' + r.reason + ').');
+          } else if (r && r.error) {
+            console.log('[ATP-AutoBuyer] Order failed (non-fatal): ' + r.error);
+          }
+        }).catch(function (abErr) {
+          console.log('[ATP-AutoBuyer] considerOrder threw (non-fatal): ' + (abErr && abErr.message || abErr));
+        });
+      }
+    }
+  } catch (abOuterErr) {
+    console.log('[ATP-AutoBuyer] Hook error (non-fatal): ' + (abOuterErr && abOuterErr.message || abOuterErr));
+  }
+
   // Memory Graph reasoning: prefer high-confidence paths, suppress known low-success paths (unless drift is explicit).
   let memoryAdvice = null;
   try {
