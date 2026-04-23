@@ -342,6 +342,18 @@ async function hubSearch(signals, opts) {
               const fullResults = (data2 && data2.payload && Array.isArray(data2.payload.results))
                 ? data2.payload.results
                 : [];
+              const creditCost = data2 && data2.payload && data2.payload.credit_cost;
+              if (creditCost && (creditCost.total > 0 || creditCost.already_purchased > 0)) {
+                const total = Number(creditCost.total) || 0;
+                const alreadyPurchased = Number(creditCost.already_purchased) || 0;
+                console.log('[HubSearch] Fetch cost: ' + total + ' credits' +
+                  (alreadyPurchased > 0 ? ' (' + alreadyPurchased + ' already purchased, free)' : ''));
+                const breakdown = Array.isArray(creditCost.per_asset_breakdown) ? creditCost.per_asset_breakdown : [];
+                for (const item of breakdown) {
+                  const tag = item.already_purchased ? 'already purchased' : (item.cost + ' credits');
+                  console.log('  - ' + item.asset_id + ' (gdi=' + (Number(item.gdi_score) || 0).toFixed(2) + '): ' + tag);
+                }
+              }
               if (fullResults.length > 0) {
                 _setPayloadCache(selectedAssetId, fullResults[0]);
                 pick.match = { ...pick.match, ...fullResults[0] };

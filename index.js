@@ -860,9 +860,9 @@ async function main() {
       console.log('  Version: ' + (data.version || '?'));
       console.log('  Files:   SKILL.md' + (bundled.length > 0 ? ', ' + bundled.map(f => f.name).join(', ') : ''));
       if (data.already_purchased) {
-        console.log('  Cost:    free (already purchased)');
+        console.log('  Fetch cost: free (already purchased)');
       } else {
-        console.log('  Cost:    ' + (data.credit_cost || 0) + ' credits');
+        console.log('  Fetch cost: ' + (data.credit_cost || 0) + ' credits');
       }
     } catch (error) {
       if (error && error.name === 'TimeoutError') {
