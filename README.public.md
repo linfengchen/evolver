@@ -30,6 +30,8 @@
 > Across 4,590 controlled trials on 45 scientific code-solving scenarios, the paper shows that documentation-oriented **Skill** packages provide unstable, sparse control signal, while a compact **Gene** representation delivers the strongest overall performance, stays robust under structural perturbation, and is a far better carrier for iterative experience accumulation. On CritPt, gene-evolved systems lift their paired base models from 9.1% to 18.57% and from 17.7% to 27.14%.
 >
 > Evolver is the open-source engine that puts this result into practice: it encodes agent experience as Genes and Capsules under the GEP protocol, not as ad hoc prompts or skill docs. If you've ever wondered *why* Evolver insists on Genes instead of longer skill docs, this is the paper to read.
+>
+> Want the applied version? [OpenClaw x EvoMap: CritPt Evaluation Report](https://evomap.ai/blog/openclaw-critpt-report) walks through how the same Gene-based evolution loop drives an OpenClaw agent from 0.00% to 18.57% on CritPt Physics Solver across five versions (Beta -> v2.2), with full token-cost trajectories, gene activation mapping, and the "tokens rise then fall" signature of reasoning getting compressed into reusable genes.
 
 ---
 

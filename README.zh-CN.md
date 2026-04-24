@@ -30,6 +30,8 @@
 > 论文在 45 个科学代码求解场景下完成 4,590 次对照实验，结论是：以文档为中心的 **Skill** 包控制信号稀疏且不稳定，而紧凑的 **Gene** 表示在整体表现上最强，在大幅结构扰动下仍有竞争力，并且是承载经验迭代积累的更好载体。在 CritPt 基准上，gene-evolved 系统将配对基座模型从 9.1% 提升到 18.57%，从 17.7% 提升到 27.14%。
 >
 > Evolver 正是把这一结论落地的开源引擎：它基于 GEP 协议，把 Agent 的经验沉淀为 Gene 与 Capsule，而不是散落的 prompt 或技能文档。如果你想知道 *为什么* Evolver 坚持使用 Gene 而不是更长的 skill 文档，这就是那篇该读的论文。
+>
+> 想看应用落地的样本？[OpenClaw x EvoMap：CritPt 评测报告](https://evomap.ai/blog/openclaw-critpt-report) 以 OpenClaw Agent 在 CritPt Physics Solver 上的五个版本演进（Beta → v2.2）为例，完整拆解了同一套 Gene 进化闭环如何把得分从 0.00% 推到 18.57%，并给出 token 成本轨迹、基因激活映射，以及推理被压缩成可复用基因后所呈现的「token 先升后降」特征。
 
 ---
 
