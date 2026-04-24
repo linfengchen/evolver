@@ -268,6 +268,12 @@ async function main() {
 
         // ATP: opt-in capability-gap auto-buyer (default OFF, must be explicitly enabled).
         try {
+          try {
+            const { runPrompt } = require('./src/atp/cliAutobuyPrompt');
+            await runPrompt();
+          } catch (promptErr) {
+            console.warn('[ATP-AutoBuyer] first-run prompt failed: ' + (promptErr && promptErr.message || promptErr));
+          }
           const autoBuyRaw = (process.env.EVOLVER_ATP_AUTOBUY || 'off').toLowerCase().trim();
           const autoBuyOn = autoBuyRaw === 'on' || autoBuyRaw === '1' || autoBuyRaw === 'true';
           if (autoBuyOn) {
