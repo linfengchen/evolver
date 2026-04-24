@@ -13,6 +13,20 @@ const sandbox = require('../src/gep/validator/sandboxExecutor');
 const reporter = require('../src/gep/validator/reporter');
 const validatorIndex = require('../src/gep/validator');
 
+// Absolute paths to fixture scripts used as sandbox validation commands.
+// Sandbox BLOCKED_NODE_FLAGS now rejects `node -e "..."` inline eval even
+// from trusted callers, so every sandbox test must reach node via a real
+// script file. `node` itself remains a real binary across platforms and
+// works with spawn(..., { shell: false }).
+const FX_DIR = path.join(__dirname, 'fixtures');
+const CMD_PASS = 'node ' + path.join(FX_DIR, 'pass.js');
+const CMD_FAIL = 'node ' + path.join(FX_DIR, 'fail.js');
+const CMD_SLOW = 'node ' + path.join(FX_DIR, 'slow.js');
+const CMD_HELLO = 'node ' + path.join(FX_DIR, 'hello.js');
+const CMD_ECHO_FIRST = 'node ' + path.join(FX_DIR, 'echo-first.js');
+const CMD_EXIT_2 = 'node ' + path.join(FX_DIR, 'exit-2.js');
+const CMD_PRINT_CWD = 'node ' + path.join(FX_DIR, 'print-cwd.js');
+
 function withFakeFetch(impl, fn) {
   const original = global.fetch;
   global.fetch = impl;
@@ -34,10 +48,7 @@ describe('sandboxExecutor.runInSandbox', function () {
   const isWin = process.platform === 'win32';
 
   it('runs a passing command inside an isolated temp dir', async function () {
-    // v1.69.8: shell chaining (&&) is no longer accepted; use a single node
-    // invocation that prints both the marker string and cwd.
-    const cmd = 'node -e "console.log(\'hello-sandbox\'); console.log(process.cwd())"';
-    const out = await sandbox.runInSandbox([cmd], {});
+    const out = await sandbox.runInSandbox([CMD_HELLO], {});
     assert.equal(out.results.length, 1);
     assert.equal(out.overallOk, true);
     assert.match(out.results[0].stdout, /hello-sandbox/);
@@ -47,11 +58,10 @@ describe('sandboxExecutor.runInSandbox', function () {
   });
 
   it('stops at first failure and reports overallOk=false', async function () {
-    // v1.69.8: `exit 2` was a shell-builtin; use `node -e "process.exit(2)"`.
     const out = await sandbox.runInSandbox([
-      'node -e "console.log(\'first\')"',
-      'node -e "process.exit(2)"',
-      'node -e "console.log(\'should-not-run\')"',
+      CMD_ECHO_FIRST,
+      CMD_EXIT_2,
+      CMD_HELLO,
     ], {});
     assert.equal(out.overallOk, false);
     assert.equal(out.stoppedEarly, true);
@@ -62,23 +72,19 @@ describe('sandboxExecutor.runInSandbox', function () {
   });
 
   it('enforces per-command timeout (kills long-running commands)', async function () {
-    // v1.69.8: `sleep 5` / `ping ...` are no longer in the allowlist.
-    // Use a pure-Node sleep to reach the timeout path.
-    const longCmd = 'node -e "setTimeout(()=>{},5000)"';
-    const out = await sandbox.runInSandbox([longCmd], { cmdTimeoutMs: 300 });
+    const out = await sandbox.runInSandbox([CMD_SLOW], { cmdTimeoutMs: 300 });
     assert.equal(out.overallOk, false);
     assert.equal(out.results[0].timedOut, true);
   });
 
   it('cleans up sandbox directory after execution', async function () {
-    const cmd = 'node -e "console.log(process.cwd())"';
     let captured;
-    const out = await sandbox.runInSandbox([cmd], { keepSandbox: true });
+    const out = await sandbox.runInSandbox([CMD_PRINT_CWD], { keepSandbox: true });
     captured = out.sandboxDir;
     assert.ok(captured);
     assert.ok(fs.existsSync(captured));
     // Now call with cleanup (default).
-    const out2 = await sandbox.runInSandbox([cmd], {});
+    const out2 = await sandbox.runInSandbox([CMD_PRINT_CWD], {});
     assert.equal(out2.sandboxDir, null);
     sandbox.cleanupDir(captured);
   });
@@ -96,8 +102,36 @@ describe('sandboxExecutor.runInSandbox', function () {
     assert.match(out.results[0].stderr || '', /executable_not_allowed/);
   });
 
+  it('rejects node -e inline eval (sandbox depth-in-depth)', async function () {
+    // Even if policyCheck were bypassed, the sandbox itself must refuse
+    // `node -e`-style evaluators because `node` is in ALLOWED_EXECUTABLES.
+    const out = await sandbox.runInSandbox([
+      'node -e "require(\'child_process\').execSync(\'id\')"',
+    ], {});
+    assert.equal(out.overallOk, false);
+    assert.equal(out.results[0].ok, false);
+    // Blocked flags are caught in the parseCommand/assertNodeCommandSafe block
+    // whose failures surface via the `command_parse_failed:` stderr prefix.
+    assert.match(out.results[0].stderr || '', /command_parse_failed/);
+    assert.match(out.results[0].stderr || '', /node flag not allowed/);
+    assert.equal(out.results[0].timedOut, false);
+  });
+
+  it('rejects node without a script file (inline eval disguised as --print)', async function () {
+    const out = await sandbox.runInSandbox(['node -p "1+1"'], {});
+    assert.equal(out.overallOk, false);
+    assert.match(out.results[0].stderr || '', /node flag not allowed/);
+  });
+
+  it('redirects HOME to os.tmpdir() inside sandbox env', function () {
+    const env = sandbox.buildSandboxEnv();
+    const tmpRoot = require('os').tmpdir();
+    assert.equal(env.HOME, tmpRoot);
+    assert.equal(env.TMPDIR, tmpRoot);
+  });
+
   it('rejects shell metacharacters (v1.69.8 hardening)', async function () {
-    const out = await sandbox.runInSandbox(['node -e "1" && echo pwn'], {});
+    const out = await sandbox.runInSandbox(['node script.js && echo pwn'], {});
     assert.equal(out.overallOk, false);
     assert.equal(out.results[0].ok, false);
     assert.match(out.results[0].stderr || '', /command_parse_failed/);
@@ -205,8 +239,8 @@ describe('validator.runValidatorCycle', function () {
                 nonce: 'nonce_abc',
                 asset_id: 'asset_x',
                 validation_commands: [
-                'node -e "console.log(\'ok\')"',
-                'node -e "process.exit(1)"',
+                CMD_PASS,
+                CMD_FAIL,
               ],
                 expires_at: new Date(Date.now() + 60000).toISOString(),
               },
@@ -245,8 +279,8 @@ describe('validator.runValidatorCycle', function () {
                 task_id: 'vt_ok',
                 nonce: 'nonce_xyz',
                 validation_commands: [
-                'node -e "console.log(\'alpha\')"',
-                'node -e "console.log(\'beta\')"',
+                CMD_PASS,
+                CMD_PASS,
               ],
               },
             ],

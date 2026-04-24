@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { parseCommand, ALLOWED_EXECUTABLES } = require('../src/gep/validator/sandboxExecutor');
+const { parseCommand, assertNodeCommandSafe, ALLOWED_EXECUTABLES, BLOCKED_NODE_FLAGS } = require('../src/gep/validator/sandboxExecutor');
 
 test('parseCommand splits a simple command', () => {
   const r = parseCommand('node index.js');
@@ -58,4 +58,55 @@ test('ALLOWED_EXECUTABLES rejects shell and arbitrary binaries', () => {
       binary + ' must not be in the allowlist',
     );
   }
+});
+
+test('BLOCKED_NODE_FLAGS contains the eval/require class flags', () => {
+  for (const flag of ['-e', '--eval', '-p', '--print', '-r', '--require', '--loader', '--import']) {
+    assert.strictEqual(
+      BLOCKED_NODE_FLAGS.has(flag),
+      true,
+      flag + ' must be in BLOCKED_NODE_FLAGS',
+    );
+  }
+});
+
+test('assertNodeCommandSafe rejects inline eval flags', () => {
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: ['-e', 'console.log(1)'] }),
+    /node flag not allowed/,
+  );
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: ['--eval=1+1'] }),
+    /node flag not allowed/,
+  );
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: ['-p', '1+1'] }),
+    /node flag not allowed/,
+  );
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: ['--require', './preload.js', 'script.js'] }),
+    /node flag not allowed/,
+  );
+});
+
+test('assertNodeCommandSafe rejects node with no positional script', () => {
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: [] }),
+    /script file argument/,
+  );
+  assert.throws(
+    () => assertNodeCommandSafe({ executable: 'node', args: ['--no-warnings'] }),
+    /script file argument/,
+  );
+});
+
+test('assertNodeCommandSafe is a no-op for non-node executables', () => {
+  assert.doesNotThrow(() => assertNodeCommandSafe({ executable: 'npm', args: ['test'] }));
+  assert.doesNotThrow(() => assertNodeCommandSafe({ executable: 'npx', args: ['-y', 'eslint', '.'] }));
+});
+
+test('assertNodeCommandSafe accepts well-formed node invocations', () => {
+  assert.doesNotThrow(() => assertNodeCommandSafe({ executable: 'node', args: ['index.js'] }));
+  assert.doesNotThrow(() => assertNodeCommandSafe({ executable: 'node', args: ['--no-warnings', 'index.js'] }));
+  assert.doesNotThrow(() => assertNodeCommandSafe({ executable: 'node', args: ['scripts/validate-suite.js', '--quiet'] }));
 });

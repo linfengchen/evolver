@@ -34,6 +34,37 @@ const MAX_OUTPUT_CHARS = 4000;
 // if Hub itself is compromised or mis-signs a task.
 const ALLOWED_EXECUTABLES = new Set(['node', 'npm', 'npx']);
 
+// Depth-in-depth: even though `node` is in ALLOWED_EXECUTABLES, reject the
+// flags that turn it into an arbitrary-code evaluator. A legitimate Hub-
+// delivered validation command should always be `node <script-file> [args]`,
+// never `node -e "..."` or `node --require ./attacker-preload`. This closes
+// the gap where validation_commands go straight from Hub to runInSandbox
+// without passing through policyCheck.isValidationCommandAllowed().
+const BLOCKED_NODE_FLAGS = new Set([
+  '-e', '--eval',
+  '-p', '--print',
+  '-i', '--interactive',
+  '-r', '--require',
+  '--loader',
+  '--experimental-loader',
+  '--import',
+  '--env-file',
+]);
+
+function assertNodeCommandSafe(parsed) {
+  if (parsed.executable !== 'node') return;
+  for (const arg of parsed.args) {
+    const flag = arg.split('=')[0];
+    if (BLOCKED_NODE_FLAGS.has(flag)) {
+      throw new Error('node flag not allowed in sandbox: ' + flag);
+    }
+  }
+  const firstPositional = parsed.args.find((a) => !a.startsWith('-'));
+  if (!firstPositional) {
+    throw new Error('node requires a script file argument in sandbox (inline eval is not allowed)');
+  }
+}
+
 // Parse a command string into executable + argv array, supporting single and
 // double quotes. This is a minimal parser and does NOT expand environment
 // variables, globs, redirects, pipes, or subshells. If the command string
@@ -114,17 +145,28 @@ function cleanupDir(dir) {
 }
 
 function buildSandboxEnv() {
-  // Minimal env: no secrets, no proxy, TMPDIR isolated, PATH kept.
-  const base = {
-    PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
-    HOME: process.env.HOME || '/tmp',
-    LANG: process.env.LANG || 'C.UTF-8',
-    LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+  // Minimal env: strip credential-bearing vars. Redirect HOME / TMPDIR to an
+  // os.tmpdir() path so that any child process that tries to read ~/.npmrc,
+  // ~/.ssh/*, ~/.aws/credentials, or similar host-credential files ends up
+  // in an empty scratch directory instead of the real user home.
+  // PATH is preserved so that node/npm/npx remain resolvable -- the
+  // ALLOWED_EXECUTABLES allowlist is the real gate against unwanted tools.
+  const tmp = os.tmpdir();
+  const fallbackPath = process.platform === 'win32'
+    ? 'C:\\Windows\\System32'
+    : '/usr/local/bin:/usr/bin:/bin';
+  return {
+    PATH: process.env.PATH || fallbackPath,
+    HOME: tmp,
+    USERPROFILE: tmp,
+    TMPDIR: tmp,
+    TMP: tmp,
+    TEMP: tmp,
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8',
     NODE_ENV: 'sandbox',
     EVOLVER_SANDBOX: '1',
   };
-  // Explicitly block common outbound-config envs.
-  return base;
 }
 
 function runSingleCommand(cmd, opts) {
@@ -141,6 +183,7 @@ function runSingleCommand(cmd, opts) {
     let parsed;
     try {
       parsed = parseCommand(String(cmd));
+      assertNodeCommandSafe(parsed);
     } catch (err) {
       resolve({
         cmd: String(cmd),
@@ -337,7 +380,9 @@ module.exports = {
   cleanupDir,
   buildSandboxEnv,
   parseCommand,
+  assertNodeCommandSafe,
   ALLOWED_EXECUTABLES,
+  BLOCKED_NODE_FLAGS,
   DEFAULT_CMD_TIMEOUT_MS,
   MAX_CMD_TIMEOUT_MS,
   DEFAULT_BATCH_TIMEOUT_MS,
