@@ -5,6 +5,7 @@
 [![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D%2018-green.svg)](https://nodejs.org/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/EvoMap/evolver)](https://github.com/EvoMap/evolver/commits/main)
 [![GitHub issues](https://img.shields.io/github/issues/EvoMap/evolver)](https://github.com/EvoMap/evolver/issues)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.15097-b31b1b.svg)](https://arxiv.org/abs/2604.15097)
 
 ![Evolver Cover](assets/cover.png)
 
@@ -19,6 +20,16 @@
 > To protect the integrity of the work and keep investing in this direction, future Evolver releases will transition from fully open source to source-available. **Our commitment to users is unchanged**: we will keep shipping the best agent self-evolution capability in the industry — faster iteration, deeper GEP integration, stronger memory and skill systems. All already-published MIT and GPL-3.0 versions remain freely usable under their original terms. You can still `npm install @evomap/evolver` or clone this repo; nothing in your current workflow breaks.
 >
 > Questions or concerns: open an issue or reach us at [evomap.ai](https://evomap.ai).
+
+---
+
+> **Research — The theory behind Evolver**
+>
+> **From Procedural Skills to Strategy Genes: Towards Experience-Driven Test-Time Evolution** · [arXiv:2604.15097](https://arxiv.org/abs/2604.15097) · [PDF](https://arxiv.org/pdf/2604.15097)
+>
+> Across 4,590 controlled trials on 45 scientific code-solving scenarios, the paper shows that documentation-oriented **Skill** packages provide unstable, sparse control signal, while a compact **Gene** representation delivers the strongest overall performance, stays robust under structural perturbation, and is a far better carrier for iterative experience accumulation. On CritPt, gene-evolved systems lift their paired base models from 9.1% to 18.57% and from 17.7% to 27.14%.
+>
+> Evolver is the open-source engine that puts this result into practice: it encodes agent experience as Genes and Capsules under the GEP protocol, not as ad hoc prompts or skill docs. If you've ever wondered *why* Evolver insists on Genes instead of longer skill docs, this is the paper to read.
 
 ---
 

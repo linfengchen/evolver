@@ -5,6 +5,7 @@
 [![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D%2018-green.svg)](https://nodejs.org/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/EvoMap/evolver)](https://github.com/EvoMap/evolver/commits/main)
 [![GitHub issues](https://img.shields.io/github/issues/EvoMap/evolver)](https://github.com/EvoMap/evolver/issues)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.15097-b31b1b.svg)](https://arxiv.org/abs/2604.15097)
 
 ![Evolver Cover](assets/cover.png)
 
@@ -19,6 +20,16 @@
 > 작업의 무결성을 보호하고 이 방향에 지속적으로 투자하기 위해, 향후 Evolver 릴리스는 완전한 오픈소스에서 소스 공개(source-available)로 전환됩니다. **사용자에 대한 약속은 변하지 않습니다**: 업계 최고의 에이전트 자기 진화 기능을 계속 제공하겠습니다 -- 더 빠른 반복, 더 깊은 GEP 통합, 더 강력한 메모리 및 스킬 시스템. 이미 공개된 MIT 및 GPL-3.0 버전은 원래 라이선스 조건에 따라 자유롭게 사용할 수 있습니다. `npm install @evomap/evolver` 또는 이 저장소 클론은 계속 가능하며, 기존 워크플로에는 영향이 없습니다.
 >
 > 질문이나 의견: issue를 열거나 [evomap.ai](https://evomap.ai)로 연락해 주세요.
+
+---
+
+> **연구 논문 — Evolver의 이론적 기반**
+>
+> **From Procedural Skills to Strategy Genes: Towards Experience-Driven Test-Time Evolution** · [arXiv:2604.15097](https://arxiv.org/abs/2604.15097) · [PDF](https://arxiv.org/pdf/2604.15097)
+>
+> 45개의 과학 코드 풀이 시나리오에서 진행된 4,590회의 통제 실험을 통해, 본 논문은 문서 중심의 **Skill** 패키지가 희소하고 불안정한 제어 신호만 제공하는 반면, 컴팩트한 **Gene** 표현은 가장 강력한 전체 성능을 보이고 상당한 구조적 섭동에서도 경쟁력을 유지하며 경험의 반복적 축적을 담는 더 나은 매개체라는 것을 보여줍니다. CritPt에서 gene-evolved 시스템은 짝을 이룬 기본 모델을 9.1%에서 18.57%로, 17.7%에서 27.14%로 끌어올렸습니다.
+>
+> Evolver는 이 결과를 실제로 구현하는 오픈소스 엔진입니다. GEP 프로토콜 아래 에이전트의 경험을 임시 프롬프트나 스킬 문서가 아니라 Gene과 Capsule로 인코딩합니다. *왜* Evolver가 더 긴 스킬 문서 대신 Gene을 고집하는지 궁금했다면, 바로 이 논문을 읽어야 합니다.
 
 ---
 

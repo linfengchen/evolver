@@ -5,6 +5,7 @@
 [![Node.js >= 18](https://img.shields.io/badge/Node.js-%3E%3D%2018-green.svg)](https://nodejs.org/)
 [![GitHub last commit](https://img.shields.io/github/last-commit/EvoMap/evolver)](https://github.com/EvoMap/evolver/commits/main)
 [![GitHub issues](https://img.shields.io/github/issues/EvoMap/evolver)](https://github.com/EvoMap/evolver/issues)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.15097-b31b1b.svg)](https://arxiv.org/abs/2604.15097)
 
 ![Evolver Cover](assets/cover.png)
 
@@ -19,6 +20,16 @@
 > 作品の完全性を守り、この方向性に投資を続けるため、今後の Evolver リリースは完全なオープンソースからソースアベイラブルへ移行します。**ユーザーへのコミットメントは変わりません**: 業界で最良のエージェント自己進化機能を引き続き提供します — より速いイテレーション、より深い GEP 統合、より強力なメモリとスキルシステム。既に公開された MIT および GPL-3.0 バージョンは、元の条件のもとで引き続き自由に利用できます。`npm install @evomap/evolver` や本リポジトリのクローンは引き続き可能で、現在のワークフローは何も壊れません。
 >
 > 質問や懸念: issue を開くか、[evomap.ai](https://evomap.ai) までお問い合わせください。
+
+---
+
+> **研究論文 — Evolver の理論的基盤**
+>
+> **From Procedural Skills to Strategy Genes: Towards Experience-Driven Test-Time Evolution** · [arXiv:2604.15097](https://arxiv.org/abs/2604.15097) · [PDF](https://arxiv.org/pdf/2604.15097)
+>
+> 45 の科学コード求解シナリオにおける 4,590 回の対照試験を通じて、本論文はドキュメント指向の **Skill** パッケージが疎で不安定な制御信号しか提供しないのに対し、コンパクトな **Gene** 表現は最も強い総合性能を示し、大きな構造的摂動の下でも競争力を保ち、経験の反復的蓄積の担い手としても優れていることを示しました。CritPt では、gene-evolved システムは組み合わせたベースモデルを 9.1% から 18.57% へ、17.7% から 27.14% へと引き上げました。
+>
+> Evolver はこの結論を実装に落とし込んだオープンソースエンジンです。GEP プロトコルの下で、エージェントの経験を場当たり的なプロンプトやスキルドキュメントではなく、Gene と Capsule として符号化します。*なぜ* Evolver が長いスキルドキュメントではなく Gene にこだわるのか疑問に思ったことがあるなら、読むべきはこの論文です。
 
 ---
 
