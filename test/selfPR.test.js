@@ -221,6 +221,58 @@ describe('state management', () => {
     assert.ok(!s.recentDiffHashes.includes('hash_0'));
     assert.ok(s.recentDiffHashes.includes('hash_24'));
   });
+
+  it('writeState swallows write errors silently by default', () => {
+    const origDebug = process.env.DEBUG;
+    const origEvolverDebug = process.env.EVOLVER_DEBUG;
+    delete process.env.DEBUG;
+    delete process.env.EVOLVER_DEBUG;
+    const origEvolutionDir = process.env.EVOLUTION_DIR;
+    process.env.EVOLUTION_DIR = '/dev/null/selfpr-nested';
+
+    const origWrite = process.stderr.write;
+    let captured = '';
+    process.stderr.write = function (chunk) {
+      captured += String(chunk);
+      return true;
+    };
+
+    try {
+      assert.doesNotThrow(() => writeState({ lastPRAt: null, recentDiffHashes: [] }));
+      assert.equal(captured, '', 'no stderr output without DEBUG');
+    } finally {
+      process.stderr.write = origWrite;
+      if (origEvolutionDir !== undefined) process.env.EVOLUTION_DIR = origEvolutionDir;
+      else delete process.env.EVOLUTION_DIR;
+      if (origDebug !== undefined) process.env.DEBUG = origDebug;
+      if (origEvolverDebug !== undefined) process.env.EVOLVER_DEBUG = origEvolverDebug;
+    }
+  });
+
+  it('writeState writes a diagnostic line to stderr when DEBUG is set', () => {
+    const origDebug = process.env.DEBUG;
+    const origEvolutionDir = process.env.EVOLUTION_DIR;
+    process.env.DEBUG = '1';
+    process.env.EVOLUTION_DIR = '/dev/null/selfpr-nested';
+
+    const origWrite = process.stderr.write;
+    let captured = '';
+    process.stderr.write = function (chunk) {
+      captured += String(chunk);
+      return true;
+    };
+
+    try {
+      assert.doesNotThrow(() => writeState({ lastPRAt: null, recentDiffHashes: [] }));
+      assert.ok(captured.includes('selfPR.writeState failed'), 'diagnostic line should be emitted under DEBUG');
+    } finally {
+      process.stderr.write = origWrite;
+      if (origDebug !== undefined) process.env.DEBUG = origDebug;
+      else delete process.env.DEBUG;
+      if (origEvolutionDir !== undefined) process.env.EVOLUTION_DIR = origEvolutionDir;
+      else delete process.env.EVOLUTION_DIR;
+    }
+  });
 });
 
 // --- computeDiffHash ---

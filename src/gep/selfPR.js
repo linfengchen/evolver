@@ -102,7 +102,11 @@ function writeState(state) {
     const dir = getEvolutionDir();
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(getStatePath(), JSON.stringify(state, null, 2) + '\n');
-  } catch (_) {}
+  } catch (e) {
+    if (process.env.DEBUG || process.env.EVOLVER_DEBUG) {
+      try { process.stderr.write('selfPR.writeState failed: ' + String(e && e.message || e) + '\n'); } catch (_) {}
+    }
+  }
 }
 
 function isInCooldown() {
