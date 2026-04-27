@@ -404,7 +404,12 @@ function detectDestructiveChanges({ repoRoot, changedFiles, baselineUntracked })
   return violations;
 }
 
-const VALIDATION_ALLOWED_PREFIXES = ['node ', 'npm ', 'npx '];
+// GHSA-jxh8-jh77-xh6g: previously allowed 'npm ' and 'npx ' prefixes. Both
+// execute arbitrary code by design (lifecycle scripts / remote bin entries),
+// so we drop them even for local gene validation. Legitimate validations must
+// invoke node directly: `node node_modules/.bin/vitest run tests/foo.test.js`
+// instead of `npx vitest run tests/foo.test.js`.
+const VALIDATION_ALLOWED_PREFIXES = ['node '];
 
 function isValidationCommandAllowed(cmd) {
   const c = String(cmd || '').trim();
@@ -429,7 +434,7 @@ function runValidationsOnce(gene, opts) {
     const c = String(cmd || '').trim();
     if (!c) continue;
     if (!isValidationCommandAllowed(c)) {
-      results.push({ cmd: c, ok: false, out: '', err: 'BLOCKED: validation command rejected by safety check (allowed prefixes: node/npm/npx; shell operators prohibited)' });
+      results.push({ cmd: c, ok: false, out: '', err: 'BLOCKED: validation command rejected by safety check (allowed prefix: node; shell operators prohibited; GHSA-jxh8-jh77-xh6g)' });
       return { ok: false, results, startedAt, finishedAt: Date.now() };
     }
     const r = tryRunCmd(c, { cwd: repoRoot, timeoutMs });

@@ -209,6 +209,9 @@ describe('validateSynthesizedGene', () => {
   });
 
   it('strips unsafe validation commands', () => {
+    // Since GHSA-jxh8-jh77-xh6g, `npm`/`npx` are no longer allowed validation
+    // prefixes -- both are arbitrary-code-execution-by-design. Only `node`
+    // survives the filter.
     var gene = {
       type: 'Gene', id: 'gene_distilled_unsafe', category: 'opt',
       signals_match: ['x'], strategy: ['do'],
@@ -216,7 +219,7 @@ describe('validateSynthesizedGene', () => {
       validation: ['node test.js', 'rm -rf /', 'echo $(whoami)', 'npm test'],
     };
     var result = validateSynthesizedGene(gene, []);
-    assert.deepEqual(result.gene.validation, ['node test.js', 'npm test']);
+    assert.deepEqual(result.gene.validation, ['node test.js']);
   });
 
   it('strips node -e and node --eval commands (consistent with policyCheck)', () => {
@@ -233,9 +236,9 @@ describe('validateSynthesizedGene', () => {
       ],
     };
     var result = validateSynthesizedGene(gene, []);
+    // npm test is now blocked alongside node -e/--eval/-p (GHSA-jxh8-jh77-xh6g).
     assert.deepEqual(result.gene.validation, [
       'node scripts/validate-modules.js ./src/evolve',
-      'npm test',
     ]);
   });
 });

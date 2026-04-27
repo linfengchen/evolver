@@ -302,7 +302,11 @@ class LifecycleManager {
   }
 
   _shouldUpgrade(minVersion) {
-    const parse = (v) => String(v || '0.0.0').split('.').map(Number);
+    // parseInt strips trailing non-digit chars in prerelease segments like
+    // `1-beta`, so `0.1.1-beta.1`.split('.')[2] -> `1-beta` -> parseInt = 1.
+    // Using Number() here returned NaN and was treated as 0, under-counting
+    // prerelease minimums. See community PR #516.
+    const parse = (v) => String(v || '0.0.0').split('.').map((part) => parseInt(part, 10));
     const min = parse(minVersion);
     const cur = parse(PROXY_PROTOCOL_VERSION);
     for (let i = 0; i < 3; i++) {

@@ -210,6 +210,11 @@ class MailboxStore {
 
   writeInbound({ id, type, payload, channel, priority, refId, expiresAt }) {
     const msgId = id || generateUUIDv7();
+    // At-least-once delivery from the Hub / retry loops can send the same
+    // message id twice. Without idempotency, poll() and countPending() would
+    // double-count the retry. See community PR #515.
+    if (this._messages.has(msgId)) return msgId;
+
     const now = Date.now();
     const msg = {
       id: msgId,

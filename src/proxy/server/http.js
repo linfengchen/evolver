@@ -6,17 +6,60 @@ const { writeSettings, readSettings, clearSettings, clearIfStale } = require('./
 const MAX_PORT_ATTEMPTS = 100;
 const DEFAULT_PORT = 19820;
 
-function parseBody(req) {
+// GHSA-7xp7-m392-h92c: cap request body at 1 MiB. The proxy's HTTP surface is
+// bound to 127.0.0.1 but still reachable by any local process (other users on
+// a shared dev host, container neighbors sharing the host netns, malicious
+// postinstall scripts). Without a cap, /asset/submit and /mailbox/send write
+// the full body verbatim into messages.jsonl, so an attacker can fill the
+// disk and make the daemon OOM on every restart (readFileSync over a multi-
+// GB JSONL). Tune via EVOMAP_PROXY_MAX_BODY_BYTES if a legitimate workload
+// truly needs bigger bodies.
+const DEFAULT_MAX_BODY_BYTES = 1 * 1024 * 1024;
+function resolveMaxBodyBytes() {
+  const raw = Number(process.env.EVOMAP_PROXY_MAX_BODY_BYTES);
+  if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
+  return DEFAULT_MAX_BODY_BYTES;
+}
+
+function parseBody(req, opts) {
+  const maxBytes = (opts && Number.isFinite(opts.maxBytes) && opts.maxBytes > 0)
+    ? opts.maxBytes
+    : resolveMaxBodyBytes();
   return new Promise((resolve, reject) => {
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      const err = new Error('Request body too large');
+      err.statusCode = 413;
+      return reject(err);
+    }
     const chunks = [];
-    req.on('data', c => chunks.push(c));
+    let received = 0;
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      try { req.destroy(); } catch { /* ignore */ }
+      reject(err);
+    };
+    req.on('data', (c) => {
+      if (settled) return;
+      received += c.length;
+      if (received > maxBytes) {
+        const err = new Error('Request body too large');
+        err.statusCode = 413;
+        return fail(err);
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString();
       if (!raw) return resolve({});
       try { resolve(JSON.parse(raw)); }
       catch (e) { reject(new Error('Invalid JSON body')); }
     });
-    req.on('error', reject);
+    req.on('error', fail);
   });
 }
 
@@ -135,4 +178,4 @@ function matchPath(pattern, pathname) {
   return params;
 }
 
-module.exports = { ProxyHttpServer, parseBody, sendJson, DEFAULT_PORT };
+module.exports = { ProxyHttpServer, parseBody, sendJson, DEFAULT_PORT, DEFAULT_MAX_BODY_BYTES, resolveMaxBodyBytes };

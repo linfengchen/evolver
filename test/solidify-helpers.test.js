@@ -201,8 +201,11 @@ describe('isValidationCommandAllowed', () => {
     assert.equal(isValidationCommandAllowed('node scripts/validate.js'), true);
   });
 
-  it('allows npm commands', () => {
-    assert.equal(isValidationCommandAllowed('npm test'), true);
+  it('blocks npm commands (GHSA-jxh8-jh77-xh6g)', () => {
+    // npm executes arbitrary code via lifecycle scripts (preinstall/install/
+    // postinstall). It is no longer an allowed validation prefix.
+    assert.equal(isValidationCommandAllowed('npm test'), false);
+    assert.equal(isValidationCommandAllowed('npm install'), false);
   });
 
   it('blocks shell operators', () => {
@@ -234,8 +237,9 @@ describe('isValidationCommandAllowed', () => {
     assert.equal(isValidationCommandAllowed('node $(echo malicious).js'), false);
   });
 
-  it('allows npx commands', () => {
-    assert.equal(isValidationCommandAllowed('npx vitest run'), true);
+  it('blocks npx commands (GHSA-jxh8-jh77-xh6g)', () => {
+    // npx fetches and runs remote package `bin` entries -- arbitrary code.
+    assert.equal(isValidationCommandAllowed('npx vitest run'), false);
   });
 
   it('allows node scripts with arguments', () => {

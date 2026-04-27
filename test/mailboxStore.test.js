@@ -99,6 +99,20 @@ describe('MailboxStore', () => {
       const id = store.writeInbound({ id: customId, type: 'hub_event', payload: {} });
       assert.equal(id, customId);
     });
+
+    it('ignores duplicate inbound ids (community PR #515)', () => {
+      // At-least-once delivery from the Hub or retry loops can replay the
+      // same message id. The second write must be a no-op: the stored
+      // payload stays as the first write, countPending does not double,
+      // and poll() still sees exactly one row.
+      const customId = generateUUIDv7();
+      store.writeInbound({ id: customId, type: 'hub_event', payload: { n: 1 } });
+      const duplicateId = store.writeInbound({ id: customId, type: 'hub_event', payload: { n: 2 } });
+      assert.equal(duplicateId, customId, 'duplicate write must still return the original id');
+      const pendingMatches = store.poll({ type: 'hub_event' }).filter(m => m.id === customId);
+      assert.equal(pendingMatches.length, 1, 'duplicate write must not produce a second row');
+      assert.deepEqual(pendingMatches[0].payload, { n: 1 }, 'first write wins (idempotent)');
+    });
   });
 
   describe('writeInboundBatch()', () => {

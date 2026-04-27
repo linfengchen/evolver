@@ -312,4 +312,68 @@ describe('ProxyHttpServer', () => {
       assert.equal(res.status, 404);
     });
   });
+
+  describe('body size cap (GHSA-7xp7-m392-h92c)', () => {
+    // The proxy binds to 127.0.0.1 but any local process (other users on a
+    // shared dev box, sibling containers sharing the netns, malicious
+    // postinstall scripts) can still hit it. Without a cap, /mailbox/send and
+    // /asset/submit would persist multi-GB payloads into messages.jsonl and
+    // exhaust disk / OOM the daemon on every restart.
+    it('rejects content-length headers above the default cap with 413', async () => {
+      // 2 MiB body, default cap is 1 MiB.
+      const big = 'x'.repeat(2 * 1024 * 1024);
+      const res = await request(`${baseUrl}/mailbox/send`, 'POST', {
+        type: 'hub_event',
+        payload: { blob: big },
+      });
+      assert.equal(res.status, 413, 'oversized body must 413');
+      assert.ok(res.body && /too large/i.test(res.body.error || ''),
+        'response should explain body too large');
+    });
+
+    it('rejects streaming bodies that exceed the cap even when Content-Length lies', async () => {
+      // Chunked upload without declared Content-Length: the per-chunk counter
+      // must still fire.
+      const u = new URL(`${baseUrl}/mailbox/send`);
+      const payload = JSON.stringify({ type: 'hub_event', payload: { blob: 'x'.repeat(2 * 1024 * 1024) } });
+      const result = await new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: u.hostname,
+          port: u.port,
+          path: u.pathname,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Transfer-Encoding': 'chunked',
+          },
+        }, (res) => {
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => {
+            const raw = Buffer.concat(chunks).toString();
+            try { resolve({ status: res.statusCode, body: JSON.parse(raw) }); }
+            catch { resolve({ status: res.statusCode, body: raw }); }
+          });
+        });
+        req.on('error', (e) => {
+          // The server destroys the socket when the cap is hit. Map socket
+          // hang-up into the expected reject-by-413 shape for this assertion.
+          if (e.code === 'ECONNRESET' || e.code === 'EPIPE') return resolve({ status: 413, body: { error: 'aborted' } });
+          reject(e);
+        });
+        req.write(payload);
+        req.end();
+      });
+      assert.equal(result.status, 413, 'streaming oversized body must 413 or be aborted');
+    });
+
+    it('accepts bodies within the cap', async () => {
+      const res = await request(`${baseUrl}/mailbox/send`, 'POST', {
+        type: 'hub_event',
+        payload: { ok: true },
+      });
+      assert.ok(res.status === 200 || res.status === 201,
+        'small bodies must still pass: got ' + res.status);
+    });
+  });
 });

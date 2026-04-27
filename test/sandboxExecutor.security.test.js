@@ -45,9 +45,23 @@ test('parseCommand rejects empty and non-string input', () => {
   assert.throws(() => parseCommand(123));
 });
 
-test('ALLOWED_EXECUTABLES contains only node/npm/npx', () => {
+test('ALLOWED_EXECUTABLES contains only node (GHSA-jxh8-jh77-xh6g: npm/npx removed)', () => {
   const allowed = Array.from(ALLOWED_EXECUTABLES).sort();
-  assert.deepStrictEqual(allowed, ['node', 'npm', 'npx']);
+  assert.deepStrictEqual(allowed, ['node']);
+});
+
+test('ALLOWED_EXECUTABLES rejects npm and npx (lifecycle-script RCE class)', () => {
+  // Both npm and npx execute arbitrary code by design (preinstall/install/
+  // postinstall lifecycle scripts for npm; remote package bin entry for npx).
+  // GHSA-jxh8-jh77-xh6g removes them from the allowlist so a compromised or
+  // MitM'd Hub cannot ship `npm install <evil-tgz>` as a validation command.
+  for (const binary of ['npm', 'npx']) {
+    assert.strictEqual(
+      ALLOWED_EXECUTABLES.has(binary),
+      false,
+      binary + ' must not be in the allowlist (GHSA-jxh8-jh77-xh6g)',
+    );
+  }
 });
 
 test('ALLOWED_EXECUTABLES rejects shell and arbitrary binaries', () => {

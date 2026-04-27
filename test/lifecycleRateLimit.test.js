@@ -121,3 +121,27 @@ test('lifecycle reAuthenticate: breaks on hello_rate_limited without retrying', 
     global.fetch = originalFetch;
   }
 });
+
+test('lifecycle _shouldUpgrade: handles prerelease minimum versions (community PR #516)', () => {
+  // Previously used Number() for version parts, so "1-beta" -> NaN -> 0, which
+  // silently broke prerelease comparisons. parseInt(..., 10) strips the
+  // trailing tag and keeps the numeric prefix. Compare against the currently
+  // shipped PROXY_PROTOCOL_VERSION rather than a hard-coded string so this
+  // test keeps working across version bumps.
+  const { PROXY_PROTOCOL_VERSION } = require('../src/proxy/mailbox/store');
+  const [maj, min, pat] = PROXY_PROTOCOL_VERSION.split('.').map(p => parseInt(p, 10));
+
+  const mgr = new LifecycleManager({ hubUrl: 'https://example.test', store: makeStore(), logger: silentLogger() });
+
+  // A prerelease tag on the *same* version must not force an upgrade.
+  assert.strictEqual(mgr._shouldUpgrade(`${maj}.${min}.${pat}-beta.1`), false,
+    'same version with prerelease tag must not trigger upgrade');
+
+  // A prerelease minimum one patch ahead must still trigger upgrade.
+  assert.strictEqual(mgr._shouldUpgrade(`${maj}.${min}.${pat + 1}-beta.1`), true,
+    'higher patch with prerelease tag must trigger upgrade');
+
+  // A prerelease minimum one minor ahead must still trigger upgrade.
+  assert.strictEqual(mgr._shouldUpgrade(`${maj}.${min + 1}.0-beta.1`), true,
+    'higher minor with prerelease tag must trigger upgrade');
+});
