@@ -240,6 +240,25 @@ function getAtpPolicy() {
   return _get('/atp/policy', '/a2a/atp/policy');
 }
 
+/**
+ * GET /a2a/task/my?node_id=... -- list this node's claimed tasks
+ *
+ * ATP-originated tasks include an `atp_order_id` field on each task so the
+ * merchant side can pair a completed task with its DeliveryProof and call
+ * submitDelivery. Non-ATP tasks simply omit the field. This is NOT an
+ * /atp/* endpoint so it never routes through the proxy passthrough.
+ *
+ * @param {number} [limit]
+ */
+function listMyTasks(limit) {
+  const nid = getNodeId();
+  const params = new URLSearchParams();
+  params.set('node_id', nid);
+  if (limit) params.set('limit', String(limit));
+  const suffix = '/a2a/task/my?' + params.toString();
+  return _hubGet(suffix);
+}
+
 module.exports = {
   placeOrder,
   submitDelivery,
@@ -250,6 +269,7 @@ module.exports = {
   getOrderStatus,
   listProofs,
   getAtpPolicy,
+  listMyTasks,
   // exported for tests only
   _isProxyMode: _isProxyMode,
 };

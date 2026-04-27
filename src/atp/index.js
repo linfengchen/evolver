@@ -7,7 +7,8 @@
 //   consumerAgent   - ready-to-use consumer agent template
 //   serviceHelper   - service publishing helper
 //   defaultHandler  - default order handler + config helpers for auto-ATP
-//   autoBuyer       - opt-in capability-gap auto order helper with budget caps
+//   autoBuyer       - opt-out capability-gap auto order helper with budget caps
+//   autoDeliver     - opt-out merchant-side submitDelivery daemon
 //   cli             - parsers and runners for the `buy`/`orders`/`verify` subcommands
 
 const hubClient = require('./hubClient');
@@ -16,6 +17,7 @@ const consumerAgent = require('./consumerAgent');
 const serviceHelper = require('./serviceHelper');
 const defaultHandler = require('./defaultHandler');
 const autoBuyer = require('./autoBuyer');
+const autoDeliver = require('./autoDeliver');
 const cli = require('./cli');
 
 module.exports = {
@@ -25,5 +27,6 @@ module.exports = {
   serviceHelper,
   defaultHandler,
   autoBuyer,
+  autoDeliver,
   cli,
 };

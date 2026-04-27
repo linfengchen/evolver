@@ -266,7 +266,10 @@ async function main() {
           console.warn('[ATP] Auto-init failed: ' + (atpInitErr && atpInitErr.message || atpInitErr));
         }
 
-        // ATP: opt-in capability-gap auto-buyer (default OFF, must be explicitly enabled).
+        // ATP: capability-gap auto-buyer. Default ON as of ATP liquidity
+        // unlock; disable with EVOLVER_ATP_AUTOBUY=off. Also starts the
+        // merchant-side auto-deliver daemon so claimed ATP tasks actually
+        // call submitDelivery and settle instead of expiring.
         try {
           try {
             const { runPrompt } = require('./src/atp/cliAutobuyPrompt');
@@ -274,8 +277,8 @@ async function main() {
           } catch (promptErr) {
             console.warn('[ATP-AutoBuyer] first-run prompt failed: ' + (promptErr && promptErr.message || promptErr));
           }
-          const autoBuyRaw = (process.env.EVOLVER_ATP_AUTOBUY || 'off').toLowerCase().trim();
-          const autoBuyOn = autoBuyRaw === 'on' || autoBuyRaw === '1' || autoBuyRaw === 'true';
+          const autoBuyRaw = (process.env.EVOLVER_ATP_AUTOBUY || 'on').toLowerCase().trim();
+          const autoBuyOn = autoBuyRaw !== 'off' && autoBuyRaw !== '0' && autoBuyRaw !== 'false';
           if (autoBuyOn) {
             const hubUrl = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || '';
             if (hubUrl) {
@@ -285,7 +288,20 @@ async function main() {
                 perOrderCap: Number(process.env.ATP_AUTOBUY_PER_ORDER_CAP_CREDITS) || undefined,
               });
             } else {
-              console.warn('[ATP-AutoBuyer] EVOLVER_ATP_AUTOBUY=on but no hub URL configured, skipping.');
+              console.warn('[ATP-AutoBuyer] autobuy enabled but no hub URL configured, skipping.');
+            }
+          }
+          const autoDeliverRaw = (process.env.EVOLVER_ATP_AUTODELIVER || 'on').toLowerCase().trim();
+          const autoDeliverOn = autoDeliverRaw !== 'off' && autoDeliverRaw !== '0' && autoDeliverRaw !== 'false';
+          if (autoDeliverOn) {
+            const hubUrl = process.env.A2A_HUB_URL || process.env.EVOMAP_HUB_URL || '';
+            if (hubUrl) {
+              const autoDeliver = require('./src/atp/autoDeliver');
+              autoDeliver.start({
+                pollMs: Number(process.env.ATP_AUTODELIVER_POLL_MS) || undefined,
+              });
+            } else {
+              console.warn('[ATP-AutoDeliver] autodeliver enabled but no hub URL configured, skipping.');
             }
           }
         } catch (autoBuyInitErr) {

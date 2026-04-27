@@ -149,7 +149,7 @@ describe("cliAutobuyPrompt", () => {
     assert.match(output.read(), /\[ATP-AutoBuyer\]/);
   });
 
-  it("on answer='n' writes ack enabled=false and leaves env unset", async () => {
+  it("on answer='n' writes ack enabled=false and flips env to off", async () => {
     const mod = freshModule();
     const output = collectingStream();
     const env = { ...process.env };
@@ -164,7 +164,7 @@ describe("cliAutobuyPrompt", () => {
 
     assert.equal(res.prompted, true);
     assert.equal(res.decision, "no");
-    assert.equal(env.EVOLVER_ATP_AUTOBUY, undefined);
+    assert.equal(env.EVOLVER_ATP_AUTOBUY, "off");
     const ack = JSON.parse(fs.readFileSync(mod.__internals._getAckPath(), "utf8"));
     assert.equal(ack.enabled, false);
   });

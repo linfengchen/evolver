@@ -117,10 +117,10 @@ async function runPrompt(opts) {
   try {
     output.write("\n");
     output.write("[ATP-AutoBuyer] Your evolver can automatically place small-priced\n");
-    output.write("ATP orders when it detects a capability gap (default OFF).\n");
+    output.write("ATP orders when it detects a capability gap (default ON).\n");
     output.write("  - daily hard cap:   ATP_AUTOBUY_DAILY_CAP_CREDITS (default applies)\n");
     output.write("  - per-order cap:    ATP_AUTOBUY_PER_ORDER_CAP_CREDITS\n");
-    output.write("  - unset EVOLVER_ATP_AUTOBUY and restart to disable at any time.\n");
+    output.write("  - set EVOLVER_ATP_AUTOBUY=off and restart to disable at any time.\n");
     output.write("\n");
   } catch (_) {
     return { prompted: false, decision: null, reason: "io_error" };
@@ -128,7 +128,7 @@ async function runPrompt(opts) {
 
   let answer;
   try {
-    answer = await ask("Enable autoBuyer for this session? [y/n/later] ", {
+    answer = await ask("Keep autoBuyer enabled for this session? [y/n/later] ", {
       input,
       output,
     });
@@ -143,6 +143,7 @@ async function runPrompt(opts) {
   }
   if (answer === "n" || answer === "no") {
     _writeAck(false);
+    env.EVOLVER_ATP_AUTOBUY = "off";
     return { prompted: true, decision: "no", reason: "user_declined" };
   }
   return { prompted: true, decision: "later", reason: "user_postponed" };

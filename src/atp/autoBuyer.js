@@ -1,14 +1,16 @@
-// ATP Auto-Buyer (opt-in)
+// ATP Auto-Buyer (opt-out, default ON as of ATP liquidity unlock)
 // Converts capability gaps into ATP orders with strict budget caps and
-// 24h question-level deduplication. Default OFF; enabled by setting
-// EVOLVER_ATP_AUTOBUY=on (also accepts 1/true). Budget caps:
+// 24h question-level deduplication. Disable by setting
+// EVOLVER_ATP_AUTOBUY=off. Budget caps:
 //   ATP_AUTOBUY_DAILY_CAP_CREDITS     (default 50)
 //   ATP_AUTOBUY_PER_ORDER_CAP_CREDITS (default 10)
 // Cold-start safety: the first 5 minutes after process start use a half-cap
 // to protect against misconfiguration loops on restart storms.
 //
 // Integration contract:
-//   1) Call start({ dailyCap, perOrderCap }) once when EVOLVER_ATP_AUTOBUY=on.
+//   1) Call start({ dailyCap, perOrderCap }) once at Evolver boot. The
+//      evolve loop does this at the top of every cycle; start() is
+//      idempotent so the repeated call is a no-op.
 //   2) Call considerOrder({ signals, question, capabilities, budget, ... })
 //      from the evolve loop whenever a capability gap is detected.
 //   3) Result shape: { ok, skipped?, reason?, data?, error? }.
@@ -48,8 +50,12 @@ function _todayKey(now) {
 }
 
 function _isEnabled() {
-  const raw = (process.env.EVOLVER_ATP_AUTOBUY || 'off').toLowerCase().trim();
-  return raw === 'on' || raw === '1' || raw === 'true';
+  // Default ON: the evolve loop starts autoBuyer at the top of every cycle
+  // so new users get ATP buyer routing out of the box. Disable by setting
+  // EVOLVER_ATP_AUTOBUY=off. Budget caps (DAILY_CAP + PER_ORDER_CAP) keep
+  // the downside bounded even when this is on.
+  const raw = (process.env.EVOLVER_ATP_AUTOBUY || 'on').toLowerCase().trim();
+  return raw !== 'off' && raw !== '0' && raw !== 'false';
 }
 
 function _emptyLedger() {

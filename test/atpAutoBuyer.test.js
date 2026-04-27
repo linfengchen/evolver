@@ -50,9 +50,9 @@ afterEach(() => {
 });
 
 describe('autoBuyer.start gating', () => {
-  it('does not start when EVOLVER_ATP_AUTOBUY is unset (default off)', () => {
+  it('starts when EVOLVER_ATP_AUTOBUY is unset (default on)', () => {
     autoBuyer.start({ dailyCap: 50, perOrderCap: 10 });
-    assert.equal(autoBuyer.isStarted(), false);
+    assert.equal(autoBuyer.isStarted(), true);
   });
 
   it('does not start when EVOLVER_ATP_AUTOBUY=off', () => {

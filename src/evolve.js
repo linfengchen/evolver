@@ -1277,6 +1277,28 @@ async function run() {
   const preflight = await runPreflightChecks(bridgeEnabled, loopMode);
   if (preflight.abort) return;
 
+  // Bootstrap ATP buyer/merchant daemons. Both modules are idempotent --
+  // subsequent start() calls are no-ops -- so it is safe to call every cycle.
+  // autoBuyer: opt-out via EVOLVER_ATP_AUTOBUY=off. When the evolve loop
+  //            detects a capability gap later in this function, it asks the
+  //            buyer to consider placing an ATP order.
+  // autoDeliver: opt-out via EVOLVER_ATP_AUTODELIVER=off. Polls /a2a/task/my
+  //            for claimed tasks with an atp_order_id and calls
+  //            hubClient.submitDelivery so merchant-side orders actually
+  //            settle instead of expiring after 7 days.
+  try {
+    const autoBuyer = require('./atp/autoBuyer');
+    if (autoBuyer && typeof autoBuyer.start === 'function') autoBuyer.start();
+  } catch (e) {
+    console.log('[ATP-AutoBuyer] start failed (non-fatal): ' + (e && e.message || e));
+  }
+  try {
+    const autoDeliver = require('./atp/autoDeliver');
+    if (autoDeliver && typeof autoDeliver.start === 'function') autoDeliver.start();
+  } catch (e) {
+    console.log('[ATP-AutoDeliver] start failed (non-fatal): ' + (e && e.message || e));
+  }
+
   // Reset per-cycle env flags to prevent state leaking between cycles.
   // In --loop mode, process.env persists across cycles. The circuit breaker
   // below will re-set FORCE_INNOVATION if the condition still holds.
