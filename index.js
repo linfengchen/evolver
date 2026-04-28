@@ -996,6 +996,175 @@ async function main() {
       process.exit(1);
     }
 
+  } else if (command === 'sync') {
+    const { getHubUrl, getNodeId, buildHubHeaders, sendHelloToHub, getHubNodeSecret } = require('./src/gep/a2aProtocol');
+    const { upsertGene, upsertCapsule, loadGenes, loadCapsules } = require('./src/gep/assetStore');
+
+    const hubUrl = getHubUrl();
+    if (!hubUrl) {
+      console.error('[sync] A2A_HUB_URL is not configured.');
+      process.exit(1);
+    }
+
+    try {
+      if (!getHubNodeSecret()) {
+        console.log('[sync] No node_secret found. Sending hello to Hub to register...');
+        const helloResult = await sendHelloToHub();
+        if (!helloResult || !helloResult.ok) {
+          console.error('[sync] Failed to register with Hub:', helloResult && helloResult.error || 'unknown');
+          process.exit(1);
+        }
+        console.log('[sync] Registered as ' + getNodeId());
+      }
+
+      const nodeId = getNodeId();
+      const baseUrl = hubUrl.replace(/\/+$/, '');
+      const typeFilter = (function () {
+        const f = args.find(function (a) { return typeof a === 'string' && a.startsWith('--type='); });
+        return f ? f.slice('--type='.length) : null;
+      })();
+      const dryRun = args.includes('--dry-run');
+      const limitPerPage = 100;
+
+      console.log('[sync] Fetching purchased assets from Hub...');
+      let allAssets = [];
+      let cursor = null;
+      let page = 0;
+
+      while (true) {
+        page++;
+        let url = baseUrl + '/a2a/assets/purchased?node_id=' + encodeURIComponent(nodeId) + '&limit=' + limitPerPage;
+        if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
+        if (typeFilter) url += '&type=' + encodeURIComponent(typeFilter);
+
+        const resp = await fetch(url, {
+          method: 'GET',
+          headers: buildHubHeaders(),
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (!resp.ok) {
+          const body = await resp.text().catch(function () { return ''; });
+          console.error('[sync] Hub returned HTTP ' + resp.status + ': ' + body.slice(0, 500));
+          process.exit(1);
+        }
+
+        const data = await resp.json();
+        if (Array.isArray(data.assets)) {
+          allAssets = allAssets.concat(data.assets);
+        }
+        if (isVerbose) console.log('[sync] Page ' + page + ': ' + (data.count || 0) + ' assets (total so far: ' + allAssets.length + ')');
+
+        if (data.has_more && data.next_cursor) {
+          cursor = data.next_cursor;
+        } else {
+          break;
+        }
+      }
+
+      if (allAssets.length === 0) {
+        console.log('[sync] No purchased assets found on Hub.');
+        process.exit(0);
+      }
+
+      console.log('[sync] Found ' + allAssets.length + ' purchased asset(s). Syncing to local store...');
+
+      const existingGenes = loadGenes();
+      const existingCapsules = loadCapsules();
+      const localGeneIds = new Set(existingGenes.filter(function (g) { return g && g.id; }).map(function (g) { return g.id; }));
+      const localCapsuleIds = new Set(existingCapsules.filter(function (c) { return c && c.id; }).map(function (c) { return c.id; }));
+
+      let synced = 0;
+      let skipped = 0;
+      let fetchErrors = 0;
+
+      for (const asset of allAssets) {
+        const assetId = asset.asset_id;
+        const assetType = asset.asset_type;
+
+        if (assetType === 'Gene' && localGeneIds.has(asset.local_id || assetId)) {
+          skipped++;
+          continue;
+        }
+        if (assetType === 'Capsule' && localCapsuleIds.has(asset.local_id || assetId)) {
+          skipped++;
+          continue;
+        }
+        if (assetType !== 'Gene' && assetType !== 'Capsule') {
+          skipped++;
+          continue;
+        }
+
+        if (dryRun) {
+          console.log('  [dry-run] Would sync: ' + assetType + ' ' + assetId);
+          synced++;
+          continue;
+        }
+
+        try {
+          const detailResp = await fetch(baseUrl + '/a2a/assets/' + encodeURIComponent(assetId) + '?detailed=true', {
+            method: 'GET',
+            headers: buildHubHeaders(),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (!detailResp.ok) {
+            if (isVerbose) console.warn('  [sync] Failed to fetch detail for ' + assetId + ' (HTTP ' + detailResp.status + ')');
+            fetchErrors++;
+            continue;
+          }
+
+          const detail = await detailResp.json();
+          const payload = detail.payload || {};
+
+          if (assetType === 'Gene') {
+            const geneObj = {
+              type: 'Gene',
+              id: payload.id || asset.local_id || assetId,
+              category: payload.category || 'unknown',
+              signals: Array.isArray(payload.signals) ? payload.signals : [],
+              strategy: Array.isArray(payload.strategy) ? payload.strategy : [],
+              avoid: Array.isArray(payload.avoid) ? payload.avoid : [],
+              validation: payload.validation || {},
+              summary: payload.summary || detail.summary || asset.summary || '',
+              hub_asset_id: assetId,
+              synced_at: new Date().toISOString(),
+            };
+            upsertGene(geneObj);
+            localGeneIds.add(geneObj.id);
+          } else {
+            const capsuleObj = {
+              type: 'Capsule',
+              id: payload.id || asset.local_id || assetId,
+              gene: payload.gene || null,
+              genes_used: Array.isArray(payload.genes_used) ? payload.genes_used : [],
+              outcome: payload.outcome || {},
+              execution_trace: payload.execution_trace || {},
+              summary: payload.summary || detail.summary || asset.summary || '',
+              hub_asset_id: assetId,
+              synced_at: new Date().toISOString(),
+            };
+            upsertCapsule(capsuleObj);
+            localCapsuleIds.add(capsuleObj.id);
+          }
+          synced++;
+        } catch (fetchErr) {
+          if (isVerbose) console.warn('  [sync] Error fetching ' + assetId + ': ' + (fetchErr && fetchErr.message || fetchErr));
+          fetchErrors++;
+        }
+      }
+
+      console.log('[sync] Done. synced=' + synced + ' skipped=' + skipped + ' errors=' + fetchErrors);
+      if (dryRun) console.log('[sync] (dry-run mode: no files were modified)');
+    } catch (error) {
+      if (error && error.name === 'TimeoutError') {
+        console.error('[sync] Request timed out. Check your network and A2A_HUB_URL.');
+      } else {
+        console.error('[sync] Error: ' + (error && error.message || error));
+      }
+      process.exit(1);
+    }
+
   } else if (command === 'asset-log') {
     const { summarizeCallLog, readCallLog, getLogPath } = require('./src/gep/assetCallLog');
 
@@ -1140,10 +1309,13 @@ async function main() {
     }
 
   } else {
-    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks|buy|orders|verify|atp-complete] [--loop]
+    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|sync|asset-log|setup-hooks|buy|orders|verify|atp-complete] [--loop]
   - fetch flags:
     - --skill=<id> | -s <id>   (skill ID to download)
     - --out=<dir>              (output directory, default: ./skills/<skill_id>)
+  - sync flags:
+    - --type=Gene|Capsule      (filter by asset type)
+    - --dry-run                (preview without writing to local store)
   - solidify flags:
     - --dry-run
     - --no-rollback
