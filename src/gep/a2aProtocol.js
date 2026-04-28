@@ -858,6 +858,26 @@ function sendHeartbeat() {
         });
       }
       _heartbeatConsecutiveFailures = 0;
+      if ((Array.isArray(data.pending_atp_tasks) && data.pending_atp_tasks.length > 0)
+          || (Array.isArray(data.pending_deliveries) && data.pending_deliveries.length > 0)) {
+        // Heartbeat-thread ATP trigger: the evolve run() loop is responsible
+        // for ATP pickup and autoDeliver polling, but many merchant nodes
+        // run in heartbeat-only mode (worker subprocess, proxy lifecycle,
+        // Cursor-native wrapper without a run() loop). For those, we react
+        // directly from the heartbeat callback so submitDelivery lands
+        // without the run() loop. Pure HTTP, no spawn, no LLM.
+        try {
+          var hbSig = require('../atp/heartbeatSignalsHandler');
+          hbSig.handleHeartbeatSignals({
+            pending_atp_tasks: data.pending_atp_tasks,
+            pending_deliveries: data.pending_deliveries,
+          }).catch(function (err) {
+            console.warn('[ATP-HB] handler rejected:', err && err.message || err);
+          });
+        } catch (e) {
+          console.warn('[ATP-HB] handler unavailable:', e && e.message || e);
+        }
+      }
       try {
         const logPath = getEvolverLogPath();
         fs.mkdirSync(path.dirname(logPath), { recursive: true });
