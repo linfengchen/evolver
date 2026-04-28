@@ -19,3 +19,6 @@ test/tmp/
 .evomap_node_id
 skills/
 logs/
+
+# Local triage notes (per-machine, never shipped to public or commits)
+TRIAGE.md
