@@ -462,6 +462,19 @@ let _latestHeartbeatActions = null;
 let _latestSharedKnowledgeDelta = null;
 let _sharedKnowledgeVersion = 0;
 let _forceUpdatePending = null;
+// Heartbeat-driven force_update lifecycle tracking.
+// _forceUpdateInFlight: true while executeForceUpdate is running (sync in practice,
+//   but we guard anyway in case a later implementation is async).
+// _forceUpdateLastAttemptAt: epoch ms of the most recent upgrade attempt.
+//   Used to cool down retries when the upgrade fails, so we do not spawn
+//   `npx degit` / `npm install -g` on every heartbeat (default interval 30s).
+let _forceUpdateInFlight = false;
+let _forceUpdateLastAttemptAt = 0;
+function _getForceUpdateRetryCooldownMs() {
+  var v = Number(process.env.EVOLVER_FORCE_UPDATE_RETRY_COOLDOWN_MS);
+  if (Number.isFinite(v) && v >= 0) return v;
+  return 15 * 60 * 1000;
+}
 let _pollInflight = false;
 let _cachedHubNodeSecret = null;
 let _cachedHubNodeSecretAt = 0;
@@ -830,6 +843,14 @@ function sendHeartbeat() {
         console.log('[ForceUpdate] Hub requires update to ' +
           (data.force_update.required_version || '?') +
           ' -- reason: ' + (data.force_update.reason || 'unspecified'));
+        // Heartbeat-thread trigger: many workers (merchantAgent, buyer-only,
+        // proxy lifecycle) never enter the evolve run() loop that historically
+        // consumed _forceUpdatePending. Without this block, Hub can send
+        // force_update forever and the node will keep heartbeating on the old
+        // version. We therefore drive executeForceUpdate directly from here,
+        // gated by a single in-flight lock and a cooldown on failures so we
+        // do not hammer npm/degit every heartbeat tick.
+        _maybeTriggerForceUpdateFromHeartbeat(data.force_update);
       }
       if (data.has_pending_events) {
         _fetchHubEvents().catch(function (err) {
@@ -935,6 +956,51 @@ function consumeForceUpdate() {
   var pending = _forceUpdatePending;
   _forceUpdatePending = null;
   return pending;
+}
+
+// Heartbeat-driven force_update trigger. Called inline when the heartbeat
+// response carries a `force_update` directive. This exists because most
+// worker deployments (merchantAgent, proxy lifecycle, buyer-only mode) never
+// run the evolve run() loop, so the pending directive was never consumed and
+// those nodes stayed on stale versions indefinitely -- which is exactly what
+// blocked ATP settlement (v1.74.0 autoDeliver) from rolling out.
+function _maybeTriggerForceUpdateFromHeartbeat(forceUpdate) {
+  if (!forceUpdate || typeof forceUpdate !== 'object') return;
+  if (_forceUpdateInFlight) return;
+  var nowMs = Date.now();
+  if (_forceUpdateLastAttemptAt && (nowMs - _forceUpdateLastAttemptAt) < _getForceUpdateRetryCooldownMs()) {
+    // A recent attempt already ran and either succeeded (in which case the
+    // process exited and we won't get here) or failed. Back off to avoid
+    // spamming the upgrade channels every heartbeat interval.
+    return;
+  }
+  _forceUpdateInFlight = true;
+  _forceUpdateLastAttemptAt = nowMs;
+  // Claim the pending directive immediately so any concurrent evolve run()
+  // loop via consumeForceUpdate does not re-trigger executeForceUpdate.
+  _forceUpdatePending = null;
+  // Kick off in a microtask so the heartbeat promise chain can still complete
+  // (log touch, return {ok:true}) before the long-running upgrade takes over
+  // the process.
+  Promise.resolve().then(function () {
+    var updated = false;
+    try {
+      var mod = require('../forceUpdate');
+      updated = mod.executeForceUpdate(forceUpdate);
+    } catch (e) {
+      console.warn('[ForceUpdate] heartbeat-trigger failed (non-fatal): ' + (e && e.message || e));
+      updated = false;
+    } finally {
+      _forceUpdateInFlight = false;
+    }
+    if (updated) {
+      console.log('[ForceUpdate] Update complete (heartbeat-trigger). Exiting for restart...');
+      try { process.exit(78); } catch (_) {}
+    } else {
+      console.warn('[ForceUpdate] heartbeat-trigger failed. Will retry after cooldown (' +
+        Math.round(_getForceUpdateRetryCooldownMs() / 60000) + 'min).');
+    }
+  });
 }
 
 function getForceUpdate() {
@@ -1417,6 +1483,14 @@ module.exports = {
   consumeSharedKnowledgeDelta,
   getSharedKnowledgeVersion,
   consumeForceUpdate,
+  // Test-only: reset heartbeat-driven force_update state. Not part of the
+  // public API. Only used by forceUpdateHeartbeat.test.js to avoid cooldown
+  // leakage between sibling tests.
+  _resetForceUpdateStateForTesting: function () {
+    _forceUpdateInFlight = false;
+    _forceUpdateLastAttemptAt = 0;
+    _forceUpdatePending = null;
+  },
   getForceUpdate,
   getHubEvents,
   consumeHubEvents,
