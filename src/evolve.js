@@ -1299,6 +1299,29 @@ async function run() {
     console.log('[ATP-AutoDeliver] start failed (non-fatal): ' + (e && e.message || e));
   }
 
+  // ATP task pickup: before we spend this cycle on self-evolution, check
+  // whether we owe a buyer actual agent work. Hub pre-claims ATP tasks for
+  // the routed merchant node, but the standard fetch channel never surfaces
+  // claimed tasks, so without this branch the merchant's wrapper never
+  // knows it has paid work to perform. If we find one, we yield the bridge
+  // to the atp_pickup sub-session for this cycle; evolve will resume on
+  // the next loop tick.
+  try {
+    if (determineBridgeEnabled()) {
+      const atpTaskPickup = require('./atp/atpTaskPickup');
+      if (atpTaskPickup && typeof atpTaskPickup.pickOne === 'function') {
+        const pick = await atpTaskPickup.pickOne({ limit: 5 });
+        if (pick && pick.spawnCall) {
+          console.log('\n[ATP-Pickup] Yielding cycle to ATP task ' + pick.task.id + ' (order=' + pick.task.atp_order_id + ')');
+          console.log(pick.spawnCall);
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    console.log('[ATP-Pickup] check failed (non-fatal): ' + (e && e.message || e));
+  }
+
   // Reset per-cycle env flags to prevent state leaking between cycles.
   // In --loop mode, process.env persists across cycles. The circuit breaker
   // below will re-set FORCE_INNOVATION if the condition still holds.
@@ -2006,9 +2029,16 @@ async function run() {
           .filter(function (s) { return typeof s === 'string' && s.startsWith('cap:'); })
           .map(function (s) { return s.slice(4); });
         const capabilities = capsFromSignals.length > 0 ? capsFromSignals : ['code_evolution'];
+        let composedQuestion;
+        try {
+          const qc = require('./atp/questionComposer');
+          composedQuestion = qc.compose({ capabilities: capabilities, signals: signals.slice(0, 8) });
+        } catch (qcErr) {
+          composedQuestion = 'I would like help with ' + capabilities.slice(0, 3).join(', ') + '. Please provide one concrete, actionable answer.';
+        }
         autoBuyer.considerOrder({
           capabilities: capabilities,
-          question: 'Capability gap detected by evolver: ' + signals.slice(0, 10).join(','),
+          question: composedQuestion,
           signals: signals.slice(0, 20),
           routingMode: 'fastest',
           verifyMode: 'auto',

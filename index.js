@@ -1072,6 +1072,45 @@ async function main() {
       process.exit(1);
     }
 
+  } else if (command === 'atp-complete') {
+    // Invoked by a spawned Cursor sub-session after it has written the ATP
+    // task answer to a file. Drives publish -> task/complete -> atp/deliver.
+    try {
+      const subArgs = args.slice(1);
+      function flag(name) {
+        const pref = '--' + name + '=';
+        const hit = subArgs.find(function (a) { return typeof a === 'string' && a.startsWith(pref); });
+        return hit ? hit.slice(pref.length) : null;
+      }
+      function list(name) {
+        const raw = flag(name);
+        if (!raw) return null;
+        return raw.split(',').map(function (s) { return String(s).trim(); }).filter(Boolean);
+      }
+      const taskId = flag('task-id');
+      const orderId = flag('order-id');
+      const answerFile = flag('answer-file');
+      const summary = flag('summary');
+      const capabilities = list('capabilities');
+      const signals = list('signals');
+      if (!taskId || !orderId || !answerFile) {
+        console.error('[ATP-Complete] Missing required flags: --task-id, --order-id, --answer-file');
+        console.error('Usage: node index.js atp-complete --task-id=<tid> --order-id=<oid> --answer-file=<path> [--summary="..."] [--capabilities=cap1,cap2] [--signals=sig1,sig2]');
+        process.exit(2);
+      }
+      const { completeAtpTask } = require('./src/atp/atpExecute');
+      const res = await completeAtpTask({ taskId, orderId, answerFile, summary, capabilities, signals });
+      if (res && res.ok) {
+        console.log('[ATP-Complete] OK asset_id=' + res.assetId + (res.deliveryId ? ' delivery_id=' + res.deliveryId : ''));
+        process.exit(0);
+      }
+      console.error('[ATP-Complete] FAILED stage=' + (res && res.stage) + ' error=' + (res && res.error));
+      process.exit(1);
+    } catch (atpCompleteErr) {
+      console.error('[ATP-Complete] Error:', atpCompleteErr && atpCompleteErr.message || atpCompleteErr);
+      process.exit(1);
+    }
+
   } else if (command === 'buy' || command === 'orders' || command === 'verify') {
     try {
       const atpCli = require('./src/atp/cli');
@@ -1101,7 +1140,7 @@ async function main() {
     }
 
   } else {
-    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks|buy|orders|verify] [--loop]
+    console.log(`Usage: node index.js [run|/evolve|solidify|review|distill|fetch|asset-log|setup-hooks|buy|orders|verify|atp-complete] [--loop]
   - fetch flags:
     - --skill=<id> | -s <id>   (skill ID to download)
     - --out=<dir>              (output directory, default: ./skills/<skill_id>)
@@ -1141,6 +1180,13 @@ async function main() {
     - --json                   (raw JSON)
   - verify <orderId>           (confirm delivery or trigger AI judge)
     - --action=confirm|ai_judge (default confirm)
+  - atp-complete               (internal: spawned Cursor sub-session uses this to settle an ATP task)
+    - --task-id=<tid>          (Hub task id, required)
+    - --order-id=<oid>         (ATP DeliveryProof id, required)
+    - --answer-file=<path>     (file containing the merchant answer, required)
+    - --summary="..."          (capsule summary, optional)
+    - --capabilities=a,b       (listing capabilities, optional)
+    - --signals=s1,s2          (task signals, optional)
 
 Validator role (decentralized validation, default ON since v1.69.0):
   - EVOLVER_VALIDATOR_ENABLED=0    opt out (env beats persisted flag and default)
