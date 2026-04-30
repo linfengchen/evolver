@@ -23,8 +23,8 @@ const MAX_QUESTIONS_PER_CYCLE = 3;
 const MAX_URGENT_QUESTIONS = 2;
 
 // Infrastructure / user-local failures that the ecosystem cannot resolve.
-// Keep in sync with evomap-hub/src/lib/agentBountySpamGuard.js so the two
-// gates never disagree about what is worth asking the community.
+// Keep in sync with the hub-side bounty spam guard so the two gates never
+// disagree about what is worth asking the community.
 var INFRA_ERROR_RE = /\b(401|403|429|500|502|503|504|529)\b|invalid[\s_-]?api[\s_-]?key|authentication[\s_-]?error|unauthorized|permission[\s_-]?denied|rate[\s_-]?limit|too[\s_-]?many[\s_-]?requests|overloaded[\s_-]?error|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|fetch[\s_-]?failed|network[\s_-]?error|connection[\s_-]?refused|context[\s_-]?length|token[\s_-]?limit|(?:context|input)[\s_-]?window[\s_-]?exceeded|maximum[\s_-]?context[\s_-]?length/i;
 
 function isInfraError(text) {
