@@ -179,6 +179,8 @@ evolver --loop
 | 루프 (`evolver --loop`) | 적응형 슬립이 포함된 데몬 루프에서 위 과정을 반복 |
 | OpenClaw 내부 | 호스트 런타임이 `sessions_spawn(...)` 등 stdout 지시문을 해석 |
 
+> **`--loop`은 "실행 중인 에이전트를 실시간으로 보조하는" 모드가 아닙니다.** 루프 모드는 백그라운드 자가 유지보수(validator 실행, worker 작업, ATP 상인 자동 배달, solidify)를 위한 것이며, 그 stdout은 evolver 자신이 소비합니다. 따라서 OpenClaw / Cursor / Claude Code가 설치되어 있더라도, 루프 모드에서 출력되는 `sessions_spawn(...)` 지시문은 이 호스트들에 전달되지 않습니다. 라이브 세션을 evolver가 관찰·보조하게 하려면, 해당 에이전트 세션 **내부에서** `evolver run`을 호출하세요(OpenClaw는 그 단일 실행의 stdout 지시문을 처리합니다). OpenClaw 사용자는 추가로, `AGENT_NAME`(또는 `AGENT_SESSIONS_DIR`)이 실제로 세션을 생성하는 에이전트 디렉터리(`~/.openclaw/agents/<이름>/sessions/`)를 가리키는지 확인하세요 -- 그렇지 않으면 evolver는 자신의 로그로 폴백하며, "빈 사이클만 돌고 있는" 것처럼 보입니다.
+
 ## 대상 사용자
 
 **적합한 경우**

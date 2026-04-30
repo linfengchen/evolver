@@ -194,6 +194,35 @@ async function main() {
         }
         console.log(`Loop mode enabled (internal daemon, bridge=${process.env.EVOLVE_BRIDGE}, verbose=${isVerbose}).`);
 
+        // Startup diagnostic: in daemon mode evolver consumes its own stdout
+        // instead of handing `sessions_spawn(...)` directives to a host
+        // runtime (OpenClaw). If the operator expects real-time agent assist
+        // they are likely using the wrong mode; if they intend daemon mode
+        // they still need AGENT_NAME / AGENT_SESSIONS_DIR pointing at a live
+        // agent or the loop will just cycle on its own logs. Emit a single
+        // warning at startup so "empty cycling" has a visible breadcrumb.
+        try {
+          const { diagnoseSessionSourceEmpty } = require('./src/evolve');
+          const diag = diagnoseSessionSourceEmpty();
+          const hasAnySource = diag.agentSessionsDirExists ||
+            diag.cursorDirExists || diag.claudeDirExists || diag.codexDirExists ||
+            Boolean(diag.cursorTranscriptsDir);
+          if (!hasAnySource) {
+            console.warn('[Daemon] No session sources detected at startup. Loop mode runs background self-maintenance but cannot observe a live agent without at least one of:');
+            console.warn(`  - ~/.openclaw/agents/<AGENT_NAME>/sessions/ (current AGENT_NAME=${diag.agentName}, exists=${diag.agentSessionsDirExists})`);
+            console.warn('  - ~/.cursor / ~/.claude / ~/.codex (IDE transcripts)');
+            console.warn('  - EVOLVER_CURSOR_TRANSCRIPTS_DIR (explicit override)');
+            if (diag.availableOpenClawAgents.length > 0) {
+              console.warn(`  Available OpenClaw agents under ~/.openclaw/agents/: ${diag.availableOpenClawAgents.join(', ')}`);
+              console.warn('  Set AGENT_NAME=<agent> or AGENT_SESSIONS_DIR=<abs path> to the one actually doing work.');
+            }
+            for (const hint of diag.hints) {
+              console.warn(`  HINT: ${hint}`);
+            }
+            console.warn('  If you want real-time agent assist (not background self-maintenance), run `evolver run` from inside the agent session instead of `evolver --loop`.');
+          }
+        } catch (_diagErr) { /* diagnostics must never block startup */ }
+
         const { getEvolutionDir, getEvolverLogPath } = require('./src/gep/paths');
         const solidifyStatePath = path.join(getEvolutionDir(), 'evolution_solidify_state.json');
 

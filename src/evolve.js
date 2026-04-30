@@ -521,6 +521,137 @@ function readOpenClawSessions() {
   }
 }
 
+// Diagnose why session source resolution produced no content. Used both by
+// readRealSessionLog (to emit a one-shot warn per process) and by startup
+// banners. Pure function: no I/O side effects beyond `fs.existsSync` and
+// `fs.readdirSync` on well-known paths; returns a serializable report so
+// tests can assert on the shape.
+function diagnoseSessionSourceEmpty(opts) {
+  const homedir = (opts && opts.homedir) || os.homedir();
+  const agentName = (opts && opts.agentName != null) ? opts.agentName : AGENT_NAME;
+  const agentSessionsDir = (opts && opts.agentSessionsDir) ||
+    path.join(homedir, `.openclaw/agents/${agentName}/sessions`);
+  const sessionSource = (opts && opts.sessionSource) || SESSION_SOURCE;
+  const cursorTranscriptsDir = (opts && opts.cursorTranscriptsDir != null)
+    ? opts.cursorTranscriptsDir : CURSOR_TRANSCRIPTS_DIR;
+
+  const diagnosis = {
+    sessionSource,
+    agentName,
+    agentSessionsDir,
+    agentSessionsDirExists: false,
+    cursorTranscriptsDir: cursorTranscriptsDir || '',
+    cursorDirExists: false,
+    claudeDirExists: false,
+    codexDirExists: false,
+    availableOpenClawAgents: [],
+    hints: [],
+  };
+
+  try {
+    diagnosis.agentSessionsDirExists = fs.existsSync(agentSessionsDir);
+  } catch (_e) { /* ignore */ }
+
+  try {
+    const cursorDir = path.join(homedir, '.cursor');
+    diagnosis.cursorDirExists = fs.existsSync(cursorDir);
+  } catch (_e) { /* ignore */ }
+  try {
+    diagnosis.claudeDirExists = fs.existsSync(path.join(homedir, '.claude'));
+  } catch (_e) { /* ignore */ }
+  try {
+    diagnosis.codexDirExists = fs.existsSync(path.join(homedir, '.codex'));
+  } catch (_e) { /* ignore */ }
+
+  try {
+    const agentsRoot = path.join(homedir, '.openclaw', 'agents');
+    if (fs.existsSync(agentsRoot)) {
+      diagnosis.availableOpenClawAgents = fs.readdirSync(agentsRoot)
+        .filter(name => {
+          try {
+            return fs.statSync(path.join(agentsRoot, name)).isDirectory();
+          } catch (_e) {
+            return false;
+          }
+        });
+    }
+  } catch (_e) { /* ignore */ }
+
+  const availableAgents = diagnosis.availableOpenClawAgents;
+  const hasAnyCursorIde = diagnosis.cursorDirExists || diagnosis.claudeDirExists ||
+    diagnosis.codexDirExists || Boolean(cursorTranscriptsDir);
+
+  if (!diagnosis.agentSessionsDirExists && availableAgents.length > 0) {
+    const others = availableAgents.filter(n => n !== agentName);
+    if (others.length > 0) {
+      diagnosis.hints.push(
+        `AGENT_NAME="${agentName}" resolves to a missing directory. Available OpenClaw agents under ~/.openclaw/agents/: ${others.join(', ')}. ` +
+        `Set AGENT_NAME=<one of those> or AGENT_SESSIONS_DIR=<absolute path> to the agent actually doing work.`
+      );
+    }
+  }
+
+  if (!diagnosis.agentSessionsDirExists && availableAgents.length === 0 && !hasAnyCursorIde) {
+    diagnosis.hints.push(
+      'No session sources detected. If you are running inside OpenClaw, confirm ~/.openclaw/agents/<AGENT_NAME>/sessions/ exists for the agent actually producing sessions. ' +
+      'If you are using Cursor / Claude Code / Codex, confirm ~/.cursor, ~/.claude or ~/.codex exists, or set EVOLVER_CURSOR_TRANSCRIPTS_DIR.'
+    );
+  }
+
+  if (sessionSource === 'openclaw' && !diagnosis.agentSessionsDirExists) {
+    diagnosis.hints.push(
+      `EVOLVER_SESSION_SOURCE=openclaw forces OpenClaw-only, but ${agentSessionsDir} does not exist. ` +
+      `Either fix AGENT_NAME/AGENT_SESSIONS_DIR, switch to EVOLVER_SESSION_SOURCE=auto, or unset it.`
+    );
+  }
+
+  if (sessionSource === 'cursor' && !hasAnyCursorIde) {
+    diagnosis.hints.push(
+      'EVOLVER_SESSION_SOURCE=cursor forces Cursor/Claude/Codex transcripts, but none of ~/.cursor, ~/.claude, ~/.codex exist and EVOLVER_CURSOR_TRANSCRIPTS_DIR is unset.'
+    );
+  }
+
+  return diagnosis;
+}
+
+// One-shot warn across the process lifetime to avoid log spam on every cycle.
+let _sessionSourceEmptyWarned = false;
+function warnSessionSourceEmptyOnce() {
+  if (_sessionSourceEmptyWarned) return;
+  _sessionSourceEmptyWarned = true;
+  try {
+    const diag = diagnoseSessionSourceEmpty();
+    const lines = [
+      '[SessionSource] No real session logs were found. evolver will fall back to its own memory/logs, which typically looks like "empty cycling" to users.',
+      `  EVOLVER_SESSION_SOURCE=${diag.sessionSource}`,
+      `  AGENT_NAME=${diag.agentName}`,
+      `  AGENT_SESSIONS_DIR=${diag.agentSessionsDir} (exists=${diag.agentSessionsDirExists})`,
+    ];
+    if (diag.availableOpenClawAgents.length > 0) {
+      lines.push(`  ~/.openclaw/agents/ candidates: ${diag.availableOpenClawAgents.join(', ')}`);
+    }
+    if (diag.cursorTranscriptsDir) {
+      lines.push(`  EVOLVER_CURSOR_TRANSCRIPTS_DIR=${diag.cursorTranscriptsDir}`);
+    }
+    lines.push(
+      `  Cursor/Claude/Codex dirs: .cursor=${diag.cursorDirExists} .claude=${diag.claudeDirExists} .codex=${diag.codexDirExists}`
+    );
+    for (const hint of diag.hints) {
+      lines.push(`  HINT: ${hint}`);
+    }
+    lines.push(
+      '  Note: `evolver --loop` (daemon mode) is for background self-maintenance (validator / worker / ATP). ' +
+      'If you want real-time assist for a running agent (e.g. OpenClaw), invoke `evolver run` from inside the agent session instead of daemonizing.'
+    );
+    console.warn(lines.join('\n'));
+  } catch (_e) { /* never let diagnostics crash the cycle */ }
+}
+
+// Reset for unit tests / long-lived embedders that want to re-arm the warn.
+function resetSessionSourceWarning() {
+  _sessionSourceEmptyWarned = false;
+}
+
 function readRealSessionLog() {
   try {
     // SESSION_SOURCE controls which transcript source to use:
@@ -532,12 +663,14 @@ function readRealSessionLog() {
     if (SESSION_SOURCE === 'cursor') {
       const content = readCursorTranscripts();
       if (content) return content;
+      warnSessionSourceEmptyOnce();
       return '[NO SESSION LOGS FOUND]';
     }
 
     if (SESSION_SOURCE === 'openclaw') {
       const content = readOpenClawSessions();
       if (content) return content;
+      warnSessionSourceEmptyOnce();
       return '[NO SESSION LOGS FOUND]';
     }
 
@@ -547,7 +680,9 @@ function readRealSessionLog() {
       if (ocContent && cursorContent) {
         return ocContent + '\n\n' + cursorContent;
       }
-      return ocContent || cursorContent || '[NO SESSION LOGS FOUND]';
+      if (ocContent || cursorContent) return ocContent || cursorContent;
+      warnSessionSourceEmptyOnce();
+      return '[NO SESSION LOGS FOUND]';
     }
 
     // 'auto' (default): detect which sources have data, use the one that does
@@ -560,7 +695,9 @@ function readRealSessionLog() {
     if (hasOpenClaw && hasCursorDir) {
       const ocContent = readOpenClawSessions();
       const cursorContent = readCursorTranscripts();
-      return ocContent || cursorContent || '[NO SESSION LOGS FOUND]';
+      if (ocContent || cursorContent) return ocContent || cursorContent;
+      warnSessionSourceEmptyOnce();
+      return '[NO SESSION LOGS FOUND]';
     }
 
     if (hasOpenClaw) {
@@ -573,6 +710,7 @@ function readRealSessionLog() {
       if (cursorContent) return cursorContent;
     }
 
+    warnSessionSourceEmptyOnce();
     return '[NO SESSION LOGS FOUND]';
   } catch (e) {
     return `[ERROR READING SESSION LOGS: ${e.message}]`;
@@ -2623,5 +2761,5 @@ ${sharedKnowledgeContext}
   }
 }
 
-module.exports = { run, computeAdaptiveStrategyPolicy, shouldSkipHubCalls, verbose, determineBridgeEnabled, formatSessionLog, formatCursorTranscript, detectCpuCount, getDefaultLoadMax, getSystemLoad };
+module.exports = { run, computeAdaptiveStrategyPolicy, shouldSkipHubCalls, verbose, determineBridgeEnabled, formatSessionLog, formatCursorTranscript, detectCpuCount, getDefaultLoadMax, getSystemLoad, diagnoseSessionSourceEmpty, resetSessionSourceWarning };
 

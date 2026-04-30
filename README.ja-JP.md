@@ -180,6 +180,8 @@ evolver --loop
 | ループ (`evolver --loop`) | 適応的スリープ付きのデーモンループで上記を繰り返す |
 | OpenClaw 内 | ホストランタイムが `sessions_spawn(...)` などの stdout ディレクティブを解釈 |
 
+> **`--loop` は「動作中のエージェントをリアルタイムで支援する」モードではありません。** ループモードはバックグラウンドの自己メンテナンス（validator 実行、worker タスク、ATP マーチャント自動配信、solidify）のためのもので、その stdout は evolver 自身が消費します。したがって、たとえ OpenClaw / Cursor / Claude Code がインストールされていても、ループモードで出力される `sessions_spawn(...)` ディレクティブはこれらのホストには届きません。evolver にライブセッションを観察・補助させたい場合は、そのエージェントセッションの **内部から** `evolver run` を呼び出してください（OpenClaw はその単一ランの stdout ディレクティブを取り込みます）。OpenClaw ユーザーはさらに、`AGENT_NAME`（または `AGENT_SESSIONS_DIR`）が実際にセッションを生成しているエージェントのディレクトリ（`~/.openclaw/agents/<名前>/sessions/`）を指していることを確認してください -- さもないと evolver は自身のログにフォールバックし、「空転している」ように見えます。
+
 ## 対象ユーザー
 
 **向いている**

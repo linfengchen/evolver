@@ -106,6 +106,10 @@ describe('determineBridgeEnabled -- black-box via child_process', () => {
       NODE_DISABLE_COLORS: '1',
       NO_COLOR: '1',
       FORCE_COLOR: '0',
+      // Silence the one-shot "Using host git repository at:" banner in
+      // paths.js so stdout contains only the bridge value and trim() yields
+      // a deterministic string. See issue #430.
+      EVOLVER_QUIET_PARENT_GIT: '1',
     };
     delete cleanEnv.EVOLVE_BRIDGE;
     delete cleanEnv.OPENCLAW_WORKSPACE;

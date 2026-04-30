@@ -178,6 +178,8 @@ When running inside a host runtime (e.g., [OpenClaw](https://openclaw.com)), the
 | Loop (`evolver --loop`) | Repeats the above in a daemon loop with adaptive sleep |
 | Inside OpenClaw | Host runtime interprets stdout directives like `sessions_spawn(...)` |
 
+> **`--loop` is not a real-time agent assistant.** Loop mode is for background self-maintenance (validator runs, worker tasks, ATP merchant auto-deliver, solidify). Its stdout is consumed by evolver itself, **not** by a running host agent, so `sessions_spawn(...)` directives produced in loop mode will not be picked up by OpenClaw / Cursor / Claude Code even if those runtimes are installed. If you want evolver to observe and advise a live agent session, call `evolver run` from **inside** that agent session (OpenClaw will pick up the stdout directives on that single run). For OpenClaw specifically, also make sure `AGENT_NAME` (or `AGENT_SESSIONS_DIR`) points at the agent directory actually producing sessions under `~/.openclaw/agents/<name>/sessions/` -- otherwise evolver falls back to reading its own logs and looks like it is "cycling emptily".
+
 ## Who This Is For / Not For
 
 **For**
