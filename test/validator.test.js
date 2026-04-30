@@ -262,6 +262,13 @@ describe('validator.runValidatorCycle', function () {
     // Ensure stake was attempted once.
     const stakeCalls = calls.filter((c) => c.url.endsWith('/a2a/validator/stake'));
     assert.equal(stakeCalls.length, 1);
+    // Regression: validator fetch MUST send tasks_only so Hub skips asset
+    // search + GDI credit deduction. Pre-2026-04-30 this sent only
+    // validation_only (ignored by Hub), burning ~96 credits per poll cycle.
+    const fetchCalls = calls.filter((c) => c.url.endsWith('/a2a/fetch'));
+    assert.equal(fetchCalls.length, 1);
+    const fetchBody = JSON.parse(fetchCalls[0].init.body);
+    assert.equal(fetchBody.payload.tasks_only, true, 'validator fetch MUST include tasks_only:true');
   });
 
   it('reports passing result when all commands succeed', async function () {

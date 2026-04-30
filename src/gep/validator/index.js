@@ -62,8 +62,14 @@ async function fetchValidationTasks() {
     sender_id: nodeId,
     timestamp: new Date().toISOString(),
     payload: {
-      include_tasks: true,
+      // tasks_only short-circuits the Hub's asset search + GDI credit charge.
+      // Pre-v1.77.0 this sent `validation_only: true`, which Hub ignored,
+      // causing ~96 credits per 15s poll to be deducted from the owner. Keep
+      // validation_only as a belt-and-suspenders hint for newer Hubs that
+      // understand it; tasks_only is the universal no-charge switch.
+      tasks_only: true,
       validation_only: true,
+      include_tasks: true,
     },
   };
 
