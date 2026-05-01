@@ -1134,9 +1134,11 @@ async function main() {
         }
       }
 
-      if (allAssets.length === 0 && !exportPath) {
-        console.log('[sync] No assets to sync.');
-        process.exit(0);
+      if (allAssets.length === 0) {
+        console.log('[sync] No remote assets to sync.');
+        if (!exportPath && !(listUnpublished && doPublished)) {
+          process.exit(0);
+        }
       }
 
       const existingGenes = loadGenes();
