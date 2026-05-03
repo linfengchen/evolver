@@ -2,7 +2,7 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
-## [1.78.6] - 2026-05-03
+## [1.78.7] - 2026-05-03
 
 ### Fixed
 
