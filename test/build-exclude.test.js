@@ -43,6 +43,21 @@ describe('public build exclusion rules', () => {
     assert.ok(hasTestInclude, 'test/*.test.js should be in include list');
   });
 
+  it('excludes runtime asset files that would overwrite user data on upgrade', () => {
+    const forbiddenInclude = [
+      'assets/gep/genes.json',
+      'assets/gep/capsules.json',
+      'assets/gep/events.jsonl',
+    ];
+    const includes = manifest.include || [];
+    for (const f of forbiddenInclude) {
+      assert.ok(!includes.includes(f),
+        f + ' must NOT be in include list -- it would overwrite the user local asset store on npm upgrade');
+      assert.ok(excludePatterns.includes(f),
+        f + ' must be in exclude list as a defense-in-depth guard');
+    }
+  });
+
   it('does not exclude core test files from public build', () => {
     const coreTests = [
       'test/paths.test.js',

@@ -448,6 +448,38 @@ function validateNoSourceMaps(outDirAbs) {
   }
 }
 
+function validateAssetsNotShipped(outDirAbs) {
+  const forbiddenAssets = [
+    'assets/gep/genes.json',
+    'assets/gep/capsules.json',
+    'assets/gep/events.jsonl',
+    'assets/gep/genes.jsonl',
+    'assets/gep/capsules.jsonl',
+    'assets/gep/candidates.jsonl',
+    'assets/gep/external_candidates.jsonl',
+    'assets/gep/failed_capsules.json',
+  ];
+  for (const rel of forbiddenAssets) {
+    const abs = path.join(outDirAbs, rel);
+    if (fs.existsSync(abs)) {
+      throw new Error(
+        '[P0] Asset file ' + rel + ' must not be shipped -- it would overwrite the ' +
+        "user's local asset store on upgrade. BLOCKING PUBLISH."
+      );
+    }
+  }
+}
+
+function writeGenesSeed(outDirAbs) {
+  const srcAbs = path.join(REPO_ROOT, 'assets', 'gep', 'genes.json');
+  if (!fs.existsSync(srcAbs)) return;
+  const destRel = path.join('assets', 'gep', 'genes.seed.json');
+  const destAbs = path.join(outDirAbs, destRel);
+  ensureDir(path.dirname(destAbs));
+  fs.copyFileSync(srcAbs, destAbs);
+  process.stdout.write('Wrote ' + normalizePosix(destRel) + ' from assets/gep/genes.json\n');
+}
+
 function main() {
   const manifestPath = path.join(REPO_ROOT, 'public.manifest.json');
   const manifest = readJson(manifestPath);
@@ -475,6 +507,7 @@ function main() {
   applyRename(outDirAbs, manifest.rename);
   rewritePackageJson(outDirAbs);
   writeDistNpmignore(outDirAbs);
+  writeGenesSeed(outDirAbs);
 
   // Prefer explicit version; otherwise use suggested version.
   const releaseVersion = process.env.RELEASE_VERSION || semver.suggestedVersion;
@@ -491,6 +524,7 @@ function main() {
 
   validateNoPrivatePaths(outDirAbs);
   validateNoSourceMaps(outDirAbs);
+  validateAssetsNotShipped(outDirAbs);
 
   // Write build manifest for private verification (do not include in dist-public/).
   const buildInfo = {

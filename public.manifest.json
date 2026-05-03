@@ -3,9 +3,6 @@
   "outDir": "dist-public",
   "include": [
     "assets/cover.png",
-    "assets/gep/genes.json",
-    "assets/gep/capsules.json",
-    "assets/gep/events.jsonl",
     "index.js",
     "package.json",
     "README.public.md",
@@ -26,6 +23,9 @@
   "exclude": [
     "assets/gep/candidates.jsonl",
     "assets/gep/external_candidates.jsonl",
+    "assets/gep/genes.json",
+    "assets/gep/capsules.json",
+    "assets/gep/events.jsonl",
     "assets/gep/genes.jsonl",
     "assets/gep/capsules.jsonl",
     "assets/gep/a2a/**",
