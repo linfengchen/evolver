@@ -191,6 +191,21 @@ function writeDistNpmignore(outDirAbs) {
     'CONTRIBUTING.md',
     'MEMORY.md',
     'public.manifest.json',
+    // Final safety net: never let runtime-generated asset files into the
+    // tarball even if they somehow appear in dist-public/ between build and
+    // publish. See 2026-05-03 incident where 1.78.3 shipped stale runtime
+    // assets to npm because dist-public was not rebuilt cleanly before
+    // `npm publish`. pkg.files=['assets/'] plus .gitignore-sourced globs
+    // would otherwise let npm pack pick up any stray files here.
+    'assets/gep/genes.json',
+    'assets/gep/capsules.json',
+    'assets/gep/events.jsonl',
+    'assets/gep/genes.jsonl',
+    'assets/gep/capsules.jsonl',
+    'assets/gep/candidates.jsonl',
+    'assets/gep/external_candidates.jsonl',
+    'assets/gep/failed_capsules.json',
+    'assets/gep/a2a/',
     '',
   ].join('\n');
   fs.writeFileSync(p, content, 'utf8');
@@ -462,11 +477,23 @@ function validateAssetsNotShipped(outDirAbs) {
   for (const rel of forbiddenAssets) {
     const abs = path.join(outDirAbs, rel);
     if (fs.existsSync(abs)) {
+      fs.rmSync(abs, { force: true });
+      process.stdout.write('Removed stray runtime asset from dist: ' + rel + '\n');
+    }
+  }
+  for (const rel of forbiddenAssets) {
+    const abs = path.join(outDirAbs, rel);
+    if (fs.existsSync(abs)) {
       throw new Error(
-        '[P0] Asset file ' + rel + ' must not be shipped -- it would overwrite the ' +
-        "user's local asset store on upgrade. BLOCKING PUBLISH."
+        '[P0] Asset file ' + rel + ' could not be removed from dist. ' +
+        "BLOCKING PUBLISH to protect the user's local asset store on upgrade."
       );
     }
+  }
+  const a2aDir = path.join(outDirAbs, 'assets', 'gep', 'a2a');
+  if (fs.existsSync(a2aDir)) {
+    fs.rmSync(a2aDir, { recursive: true, force: true });
+    process.stdout.write('Removed stray assets/gep/a2a/ from dist\n');
   }
 }
 
