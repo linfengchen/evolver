@@ -175,6 +175,34 @@ describe('getRepoRoot', () => {
     delete require.cache[resolved];
     fs.rmSync(host, { recursive: true, force: true });
   });
+
+  // Regression guard for #526:
+  // .env loading in index.js happens AFTER a first getRepoRoot() call
+  // (used to locate the .env file). If EVOLVER_REPO_ROOT is set only by
+  // that .env, we must re-read process.env on subsequent calls and
+  // override the earlier .git-walk result. Caching the pre-dotenv value
+  // would silently ignore the user's explicit override.
+  it('honors EVOLVER_REPO_ROOT set AFTER an earlier getRepoRoot() call', () => {
+    const host = fs.mkdtempSync(path.join(os.tmpdir(), 'host-git-'));
+    fs.mkdirSync(path.join(host, '.git'));
+    const override = fs.mkdtempSync(path.join(os.tmpdir(), 'override-root-'));
+
+    const origCwd = process.cwd;
+    process.cwd = () => host;
+    try {
+      const { getRepoRoot } = freshRequire('../src/gep/paths');
+      // First call: no EVOLVER_REPO_ROOT -> finds host via .git walk.
+      assert.equal(getRepoRoot(), host);
+      // Simulate .env being loaded now and setting the override.
+      process.env.EVOLVER_REPO_ROOT = override;
+      // Second call must reflect the new env, not the cached value.
+      assert.equal(getRepoRoot(), override);
+    } finally {
+      process.cwd = origCwd;
+      fs.rmSync(host, { recursive: true, force: true });
+      fs.rmSync(override, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('getSessionScope', () => {

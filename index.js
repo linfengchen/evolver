@@ -3,10 +3,40 @@
 // modules see A2A_NODE_SECRET / A2A_NODE_ID / A2A_HUB_URL at first
 // access and never fall back to a stale persisted/cached secret.
 // Reported in #460.
+//
+// Load order matters (see #526): we must not call getRepoRoot() before
+// .env is loaded, otherwise EVOLVER_REPO_ROOT set in .env is silently
+// ignored because getRepoRoot() caches the .git-walk result on first
+// call. Strategy:
+//   1. Try .env at process.cwd() first. This is where a user running
+//      `evolver` from their project root expects the file, and it is
+//      independent of getRepoRoot() caching.
+//   2. Read EVOLVER_REPO_ROOT from process.env (dotenv just populated it
+//      if set in cwd/.env).
+//   3. Only now call getRepoRoot(), which will honor EVOLVER_REPO_ROOT
+//      if present; then try .env at that root as well (dotenv never
+//      overwrites already-set keys, so step 1 wins when both exist).
 try {
   const _path = require('path');
+  // Step 1: load .env from process.cwd() before any internal require.
+  // Matches the regression test for #460 which asserts
+  // `require('dotenv').config` appears before any ./src/* require other
+  // than ./src/gep/paths.
+  require('dotenv').config({ path: _path.join(process.cwd(), '.env') });
+  // Suppress the "Using host git repository at" banner during bootstrap.
+  // If .env at the discovered root overrides EVOLVER_REPO_ROOT, the
+  // initial banner would point at the wrong path and mislead users
+  // debugging the very chicken-and-egg problem #526 reported. The banner
+  // prints for real when getRepoRoot() is called later by application code.
+  const _prevQuiet = process.env.EVOLVER_QUIET_PARENT_GIT;
+  process.env.EVOLVER_QUIET_PARENT_GIT = '1';
   const { getRepoRoot: _getRepoRoot } = require('./src/gep/paths');
-  require('dotenv').config({ path: _path.join(_getRepoRoot(), '.env') });
+  const _root = _getRepoRoot();
+  if (_root && _root !== process.cwd()) {
+    require('dotenv').config({ path: _path.join(_root, '.env') });
+  }
+  if (_prevQuiet === undefined) delete process.env.EVOLVER_QUIET_PARENT_GIT;
+  else process.env.EVOLVER_QUIET_PARENT_GIT = _prevQuiet;
 } catch (e) { /* dotenv is optional */ }
 
 const evolve = require('./src/evolve');

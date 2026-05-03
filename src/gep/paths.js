@@ -22,12 +22,17 @@ let _cachedRepoRoot = null;
 //   EVOLVER_USE_PARENT_GIT=true flag is still honored for forward
 //   compatibility but is no longer required.
 function getRepoRoot() {
-  if (_cachedRepoRoot) return _cachedRepoRoot;
-
+  // Always check EVOLVER_REPO_ROOT first, even when a cached value exists.
+  // .env is loaded during index.js bootstrap AFTER this function has
+  // already been called at least once (for locating the .env file
+  // itself). Caching the pre-dotenv result would permanently shadow any
+  // EVOLVER_REPO_ROOT later populated from .env. See #526.
   if (process.env.EVOLVER_REPO_ROOT) {
     _cachedRepoRoot = process.env.EVOLVER_REPO_ROOT;
     return _cachedRepoRoot;
   }
+
+  if (_cachedRepoRoot) return _cachedRepoRoot;
 
   const ownDir = path.resolve(__dirname, '..', '..');
 
