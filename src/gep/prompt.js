@@ -120,7 +120,7 @@ ENSURE VALID JSON SYNTAX (escape quotes in strings).
 2. EvolutionEvent (The Record)
    {
      "type": "EvolutionEvent",
-     "schema_version": "1.5.0",
+     "schema_version": "1.6.0",
      "id": "evt_<timestamp>",
      "parent": <parent_evt_id|null>,
      "intent": "repair|optimize|innovate",
@@ -139,7 +139,7 @@ ENSURE VALID JSON SYNTAX (escape quotes in strings).
    - summary MUST be a clear human-readable sentence describing what the Gene does
    {
      "type": "Gene",
-     "schema_version": "1.5.0",
+     "schema_version": "1.6.0",
      "id": "gene_<descriptive_name>",
      "summary": "<clear description of what this gene does>",
      "category": "repair|optimize|innovate",
@@ -152,15 +152,22 @@ ENSURE VALID JSON SYNTAX (escape quotes in strings).
 
 4. Capsule (The Result)
    - Only on success. Reference Gene used.
+   - execution_trace MUST be a non-empty array of { step, stage, cmd, exit } objects.
+     stage in {"build","validate","canary"}. At minimum include ONE validate step
+     describing the command that confirmed success. Without this, the hub flags
+     the Capsule as trace_empty and downstream consumers cannot audit the run.
    {
      "type": "Capsule",
-     "schema_version": "1.5.0",
+     "schema_version": "1.6.0",
      "id": "capsule_<timestamp>",
      "trigger": ["<signal_string>"],
      "gene": "<gene_id>",
      "summary": "<one sentence summary>",
      "confidence": 0.0-1.0,
-     "blast_radius": { "files": N, "lines": N }
+     "blast_radius": { "files": N, "lines": N },
+     "execution_trace": [
+       { "step": 1, "stage": "validate", "cmd": "<command you actually ran>", "exit": 0 }
+     ]
    }
 `.trim();
 

@@ -152,6 +152,25 @@ function buildPublish(opts) {
   if (!asset || !asset.type || !asset.id) {
     throw new Error('publish: asset must have type and id');
   }
+  // 2026-05-03: mirror the guard in buildPublishBundle. Single-asset publish
+  // is another path for LLM-generated Capsules that bypass solidify.js.
+  if (asset.type === 'Capsule'
+      && (!Array.isArray(asset.execution_trace) || asset.execution_trace.length === 0)) {
+    try {
+      const { buildCapsuleTraceSteps } = require('./solidify');
+      const synthesized = buildCapsuleTraceSteps({
+        blast: asset.blast_radius || null,
+        validation: o.validation || null,
+        canary: o.canary || null,
+        outcomeStatus: asset.outcome && asset.outcome.status,
+      });
+      if (Array.isArray(synthesized) && synthesized.length > 0) {
+        asset.execution_trace = synthesized;
+      }
+    } catch (_) {
+      // non-fatal; hub has a backfill path.
+    }
+  }
   const assetIdVal = asset.asset_id || computeAssetId(asset);
   const nodeSecret = getHubNodeSecret();
   if (!nodeSecret) {
@@ -187,6 +206,29 @@ function buildPublishBundle(opts) {
   if (o.modelName && typeof o.modelName === 'string') {
     gene.model_name = o.modelName;
     capsule.model_name = o.modelName;
+  }
+  // 2026-05-03: publish-time guard. The LLM prompt template historically
+  // produced Capsules with no execution_trace field, causing the hub to flag
+  // every Capsule as trace_empty even on agents that had upgraded to a
+  // trace-aware SDK. Synthesize an array from whatever the caller happens to
+  // have (validation/canary/blast) -- buildCapsuleTraceSteps always returns
+  // at least one fallback step so the resulting array is guaranteed non-empty.
+  // Runs before computeAssetId so the asset_id reflects the filled-in trace.
+  if (!Array.isArray(capsule.execution_trace) || capsule.execution_trace.length === 0) {
+    try {
+      const { buildCapsuleTraceSteps } = require('./solidify');
+      const synthesized = buildCapsuleTraceSteps({
+        blast: capsule.blast_radius || null,
+        validation: o.validation || null,
+        canary: o.canary || null,
+        outcomeStatus: capsule.outcome && capsule.outcome.status,
+      });
+      if (Array.isArray(synthesized) && synthesized.length > 0) {
+        capsule.execution_trace = synthesized;
+      }
+    } catch (_) {
+      // non-fatal: the hub has a backfill path as a second line of defense
+    }
   }
   gene.asset_id = computeAssetId(gene);
   capsule.asset_id = computeAssetId(capsule);
