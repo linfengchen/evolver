@@ -2,6 +2,35 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.78.9] - 2026-05-04
+
+### Fixed
+
+- **`AGENT_SESSIONS_DIR` override silently ignored (issue #527).**
+  `src/evolve.js` resolved the OpenClaw sessions directory at module
+  load time with a hard-coded `os.homedir()/.openclaw/agents/<name>/sessions`
+  path, bypassing `process.env.AGENT_SESSIONS_DIR` and
+  `EVOLVER_SESSION_SCOPE`. On Windows and any non-standard OpenClaw
+  layout (including `D:\openclaw\data\.openclaw\agents\...`), session
+  logs were never read and every cycle surfaced
+  `[NO SESSION LOGS FOUND]`, forcing the LLM to fall back to its own
+  memory and appear to "cycle emptily".
+
+  The module-level `AGENT_SESSIONS_DIR` now delegates to
+  `getAgentSessionsDir()` from `src/gep/paths.js`, which was already the
+  intended single source of truth. `diagnoseSessionSourceEmpty()` reuses
+  the same resolution when the caller does not inject a custom
+  `homedir` / `agentName` pair, so diagnostic output now matches what
+  the runtime actually reads.
+
+  `getAgentSessionsDir()` precedence, unchanged:
+  1. `process.env.AGENT_SESSIONS_DIR` (explicit override)
+  2. `workspace-<agent>` prefix in `EVOLVER_SESSION_SCOPE`
+  3. `AGENT_NAME` (defaults to `main`)
+
+  Regression test: `test/evolveSessionsDir.test.js` (8 cases).
+
+
 ## [1.78.8] - 2026-05-04
 
 ### Added

@@ -6,7 +6,7 @@ const { execSync } = require('child_process');
 // 10 MB — prevents RangeError on large child process output (e.g. git log/diff
 // on large repos). See GHSA reports / issue #451.
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
-const { getRepoRoot, getWorkspaceRoot, getMemoryDir, getSessionScope } = require('./gep/paths');
+const { getRepoRoot, getWorkspaceRoot, getMemoryDir, getSessionScope, getAgentSessionsDir, readSessionCwdFromHead } = require('./gep/paths');
 const { extractSignals } = require('./gep/signals');
 const {
   loadGenes,
@@ -191,7 +191,10 @@ let IS_RANDOM_DRIFT = ARGS.includes('--drift') || String(process.env.RANDOM_DRIF
 // Default Configuration
 const MEMORY_DIR = getMemoryDir();
 const AGENT_NAME = process.env.AGENT_NAME || 'main';
-const AGENT_SESSIONS_DIR = path.join(os.homedir(), `.openclaw/agents/${AGENT_NAME}/sessions`);
+// Honors process.env.AGENT_SESSIONS_DIR and EVOLVER_SESSION_SCOPE.
+// Pre-1.78.9 this was a hard-coded `~/.openclaw/agents/<name>/sessions`
+// and silently ignored both env vars -- see issue #527.
+const AGENT_SESSIONS_DIR = getAgentSessionsDir();
 const CURSOR_TRANSCRIPTS_DIR = process.env.EVOLVER_CURSOR_TRANSCRIPTS_DIR || '';
 const SESSION_SOURCE = (process.env.EVOLVER_SESSION_SOURCE || 'auto').toLowerCase();
 const TODAY_LOG = path.join(MEMORY_DIR, new Date().toISOString().split('T')[0] + '.md');
@@ -529,8 +532,16 @@ function readOpenClawSessions() {
 function diagnoseSessionSourceEmpty(opts) {
   const homedir = (opts && opts.homedir) || os.homedir();
   const agentName = (opts && opts.agentName != null) ? opts.agentName : AGENT_NAME;
+  // Prefer the module-level AGENT_SESSIONS_DIR which already resolves
+  // through getAgentSessionsDir() (honors AGENT_SESSIONS_DIR env var,
+  // EVOLVER_SESSION_SCOPE, AGENT_NAME). Only fall back to the
+  // homedir-based path when the caller explicitly supplies an agentName
+  // different from the module-level AGENT_NAME (used by tests that
+  // inject a custom homedir / agentName pair). See issue #527.
   const agentSessionsDir = (opts && opts.agentSessionsDir) ||
-    path.join(homedir, `.openclaw/agents/${agentName}/sessions`);
+    (agentName === AGENT_NAME && homedir === os.homedir()
+      ? AGENT_SESSIONS_DIR
+      : path.join(homedir, `.openclaw/agents/${agentName}/sessions`));
   const sessionSource = (opts && opts.sessionSource) || SESSION_SOURCE;
   const cursorTranscriptsDir = (opts && opts.cursorTranscriptsDir != null)
     ? opts.cursorTranscriptsDir : CURSOR_TRANSCRIPTS_DIR;
