@@ -92,6 +92,136 @@ function appendJsonl(filePath, obj) {
   fs.appendFileSync(filePath, JSON.stringify(obj) + '\n', 'utf8');
 }
 
+// Memory graph rotation (issue #519).
+//
+// memory_graph.jsonl grows unboundedly on long-running nodes, causing
+// disk waste and slow filesystem stat() calls. Rotate the file once it
+// crosses EVOLVER_MEMORY_GRAPH_MAX_SIZE_MB (default 100 MB) by renaming
+// it to memory_graph.jsonl.<ts>.gz (gzip-compressed) and starting a
+// fresh file. Keep at most EVOLVER_MEMORY_GRAPH_RETENTION_COUNT (default
+// 7) rotated archives; older ones are deleted. Opt out entirely with
+// EVOLVER_MEMORY_GRAPH_AUTO_ROTATE=false.
+//
+// The tail-read in tryReadMemoryGraphEvents is safe across rotation:
+// at worst one cycle sees an empty file, not corruption, because the
+// rename is atomic on the same filesystem.
+
+const ROTATE_CHECK_INTERVAL_MS = 30_000;
+const ROTATE_CHECK_WRITES = 100;
+
+let _lastRotateCheckAt = 0;
+let _writesSinceRotateCheck = 0;
+
+function rotationEnabled() {
+  const raw = String(process.env.EVOLVER_MEMORY_GRAPH_AUTO_ROTATE ?? 'true').toLowerCase();
+  return raw !== 'false' && raw !== '0' && raw !== 'no';
+}
+
+function rotationMaxSizeBytes() {
+  const mb = Number(process.env.EVOLVER_MEMORY_GRAPH_MAX_SIZE_MB);
+  const safe = Number.isFinite(mb) && mb > 0 ? mb : 100;
+  return Math.floor(safe * 1024 * 1024);
+}
+
+function rotationRetentionCount() {
+  const n = Number(process.env.EVOLVER_MEMORY_GRAPH_RETENTION_COUNT);
+  const safe = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7;
+  return safe;
+}
+
+// Archive suffix matcher. Matches both legacy `.<ts>` and current
+// `.<ts>.gz` forms so old layouts are pruned consistently.
+const ROTATED_SUFFIX_RE = /\.(\d{8,})(?:\.gz)?$/;
+
+function pruneRotatedArchives(activePath, retention) {
+  try {
+    const dir = path.dirname(activePath);
+    const baseName = path.basename(activePath);
+    const prefix = baseName + '.';
+    const entries = fs.readdirSync(dir)
+      .filter(name => name.startsWith(prefix) && ROTATED_SUFFIX_RE.test(name))
+      .map(name => {
+        const m = ROTATED_SUFFIX_RE.exec(name);
+        return { name, ts: m ? Number(m[1]) : 0 };
+      })
+      .sort((a, b) => b.ts - a.ts);
+    const excess = entries.slice(retention);
+    for (const entry of excess) {
+      try { fs.unlinkSync(path.join(dir, entry.name)); } catch (_) { /* best-effort */ }
+    }
+  } catch (_) {
+    // Pruning is best-effort; never block writes.
+  }
+}
+
+function rotateMemoryGraphNow(activePath) {
+  let renamedTo = null;
+  try {
+    if (!fs.existsSync(activePath)) return null;
+    const ts = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+    const rotated = `${activePath}.${ts}`;
+    // Atomic rename; new writes to activePath will create a fresh file.
+    fs.renameSync(activePath, rotated);
+    renamedTo = rotated;
+    // Compress in-place to .gz to save disk. If compression fails we
+    // still keep the uncompressed rotated file — data is preserved.
+    try {
+      const zlib = require('zlib');
+      const raw = fs.readFileSync(rotated);
+      const gz = zlib.gzipSync(raw);
+      fs.writeFileSync(`${rotated}.gz`, gz);
+      fs.unlinkSync(rotated);
+      renamedTo = `${rotated}.gz`;
+    } catch (_) {
+      // Keep uncompressed rotated file as a fallback.
+    }
+    pruneRotatedArchives(activePath, rotationRetentionCount());
+  } catch (e) {
+    // Rotation failure must never break evolver's write path.
+  }
+  return renamedTo;
+}
+
+function maybeRotateMemoryGraph(activePath, { force = false } = {}) {
+  if (!rotationEnabled()) return null;
+  _writesSinceRotateCheck += 1;
+  const now = Date.now();
+  if (!force
+      && _writesSinceRotateCheck < ROTATE_CHECK_WRITES
+      && (now - _lastRotateCheckAt) < ROTATE_CHECK_INTERVAL_MS) {
+    return null;
+  }
+  _writesSinceRotateCheck = 0;
+  _lastRotateCheckAt = now;
+  try {
+    if (!fs.existsSync(activePath)) return null;
+    const stat = fs.statSync(activePath);
+    if (stat.size < rotationMaxSizeBytes()) return null;
+    return rotateMemoryGraphNow(activePath);
+  } catch (_) {
+    return null;
+  }
+}
+
+// On process start, force an immediate rotation if the file is already
+// oversized from a pre-rotation evolver version.
+function rotateOnStartupIfOversized() {
+  try {
+    if (!rotationEnabled()) return;
+    const p = memoryGraphPath();
+    if (!fs.existsSync(p)) return;
+    const stat = fs.statSync(p);
+    if (stat.size >= rotationMaxSizeBytes()) {
+      rotateMemoryGraphNow(p);
+    }
+  } catch (_) {
+    // best-effort
+  }
+}
+// Run once at module load. Idempotent via rotationEnabled() guard and
+// the fs.existsSync guard, so side effects only fire when warranted.
+rotateOnStartupIfOversized();
+
 // Hub sync: whitelist of MemoryGraphEvent kinds that are safe to archive at Hub.
 // Only these kinds are mirrored; all kinds remain in the local jsonl regardless.
 const HUB_SYNC_KIND_ALLOWLIST = new Set([
@@ -134,7 +264,9 @@ function syncEventToHub(ev) {
 }
 
 function writeMemoryGraphEvent(ev) {
-  appendJsonl(memoryGraphPath(), ev);
+  const p = memoryGraphPath();
+  appendJsonl(p, ev);
+  maybeRotateMemoryGraph(p);
   syncEventToHub(ev);
 }
 
@@ -1125,5 +1257,12 @@ module.exports = {
   checkEpochBoundary,
   resetMemoryPreferences,
   readCurrentEpoch,
+  // Rotation helpers (issue #519). Exposed so operators / tests can
+  // force a rotation and inspect config without monkey-patching.
+  rotateMemoryGraphNow,
+  maybeRotateMemoryGraph,
+  rotationEnabled,
+  rotationMaxSizeBytes,
+  rotationRetentionCount,
 };
 

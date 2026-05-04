@@ -2,6 +2,26 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.78.8] - 2026-05-04
+
+### Added
+
+- **Built-in memory_graph.jsonl rotation (issue #519).** Long-running
+  nodes previously accumulated multi-GB `memory/evolution/memory_graph.jsonl`
+  files; one reporter observed 1.8 GB / 378k lines after 48h. Evolver now
+  rotates the active file when it crosses a size threshold:
+  - `EVOLVER_MEMORY_GRAPH_AUTO_ROTATE` (default `true`) enables rotation.
+  - `EVOLVER_MEMORY_GRAPH_MAX_SIZE_MB` (default `100`) triggers rotation.
+  - `EVOLVER_MEMORY_GRAPH_RETENTION_COUNT` (default `7`) caps how many
+    rotated `memory_graph.jsonl.<ts>.gz` archives are kept on disk.
+  - A startup pass rotates an already-oversized file on the next evolver
+    start, so pre-existing giant files are handled automatically.
+  - Rotation checks are throttled (once every ~30s or every 100 writes)
+    so the write path stays cheap. Pruning and gzip compression run
+    best-effort and never block the write path.
+  - Regression test at `test/memoryGraphRotation.test.js`.
+
+
 ## [1.78.7] - 2026-05-03
 
 ### Fixed
