@@ -1097,6 +1097,7 @@ async function main() {
       })();
       const dryRun = args.includes('--dry-run');
       const listUnpublished = !args.includes('--no-unpublished-list');
+      const force = args.includes('--force');
       const limitPerPage = 100;
 
       const validScopes = new Set(['all', 'purchased', 'published']);
@@ -1173,11 +1174,25 @@ async function main() {
 
       const existingGenes = loadGenes();
       const existingCapsules = loadCapsules();
+      // Dedup by Hub asset_id is the only safe key. Local-facing `id` (e.g.
+      // `gene_gep_repair_from_errors`) collides between bundled default seed
+      // genes and identically-named assets that the user later published, so
+      // dedup-by-id silently skips legitimate Hub copies on first sync. Track
+      // hub_asset_id (set by previous syncs / publishes) and only skip when
+      // we've already seen the same Hub-side identity.
+      const localHubAssetIds = new Set();
+      for (const g of existingGenes) {
+        if (g && g.hub_asset_id) localHubAssetIds.add(String(g.hub_asset_id));
+      }
+      for (const c of existingCapsules) {
+        if (c && c.hub_asset_id) localHubAssetIds.add(String(c.hub_asset_id));
+      }
       const localGeneIds = new Set(existingGenes.filter(function (g) { return g && g.id; }).map(function (g) { return g.id; }));
       const localCapsuleIds = new Set(existingCapsules.filter(function (c) { return c && c.id; }).map(function (c) { return c.id; }));
 
       let synced = 0;
-      let skipped = 0;
+      let skippedAlreadySynced = 0;
+      let skippedIdCollision = 0;
       let fetchErrors = 0;
 
       for (const asset of allAssets) {
@@ -1186,14 +1201,37 @@ async function main() {
         const localId = asset.local_id || assetId;
 
         if (assetType !== 'Gene' && assetType !== 'Capsule') {
-          skipped++;
+          skippedAlreadySynced++;
           continue;
         }
-        if (assetType === 'Gene' && localGeneIds.has(localId)) { skipped++; continue; }
-        if (assetType === 'Capsule' && localCapsuleIds.has(localId)) { skipped++; continue; }
+
+        // Already-synced check: same Hub asset_id is already in our local
+        // store. Idempotent skip; safe to no-op even with --force because
+        // re-fetching the same payload would only rewrite identical bytes.
+        if (!force && localHubAssetIds.has(String(assetId))) {
+          skippedAlreadySynced++;
+          continue;
+        }
+
+        // Local-id collision: a local entry with the same user-facing id
+        // already exists but has no hub_asset_id (e.g. bundled default seed
+        // gene, or a hand-edited entry). Without --force we keep the
+        // user-owned entry and warn so the user can decide.
+        if (!force) {
+          if (assetType === 'Gene' && localGeneIds.has(localId)) {
+            if (isVerbose) console.warn('  [sync] Skipping ' + localId + ' (local id collision; pass --force to overwrite with Hub copy)');
+            skippedIdCollision++;
+            continue;
+          }
+          if (assetType === 'Capsule' && localCapsuleIds.has(localId)) {
+            if (isVerbose) console.warn('  [sync] Skipping ' + localId + ' (local id collision; pass --force to overwrite with Hub copy)');
+            skippedIdCollision++;
+            continue;
+          }
+        }
 
         if (dryRun) {
-          console.log('  [dry-run] Would sync: ' + assetType + ' ' + assetId);
+          console.log('  [dry-run] Would sync: ' + assetType + ' ' + assetId + (force ? ' (force)' : ''));
           synced++;
           continue;
         }
@@ -1230,6 +1268,7 @@ async function main() {
             };
             upsertGene(geneObj);
             localGeneIds.add(geneObj.id);
+            localHubAssetIds.add(String(assetId));
           } else {
             const capsuleObj = {
               type: 'Capsule',
@@ -1244,6 +1283,7 @@ async function main() {
             };
             upsertCapsule(capsuleObj);
             localCapsuleIds.add(capsuleObj.id);
+            localHubAssetIds.add(String(assetId));
           }
           synced++;
         } catch (fetchErr) {
@@ -1252,7 +1292,12 @@ async function main() {
         }
       }
 
-      console.log('[sync] Done. scope=' + scopeArg + ' synced=' + synced + ' skipped=' + skipped + ' errors=' + fetchErrors);
+      const skippedTotal = skippedAlreadySynced + skippedIdCollision;
+      console.log('[sync] Done. scope=' + scopeArg + ' synced=' + synced + ' skipped=' + skippedTotal + ' (already_synced=' + skippedAlreadySynced + ', id_collision=' + skippedIdCollision + ') errors=' + fetchErrors);
+      if (skippedIdCollision > 0 && !force) {
+        console.log('[sync] ' + skippedIdCollision + ' Hub asset(s) share a local id with an existing local entry that has no hub_asset_id.');
+        console.log('[sync] Re-run with --force to overwrite those local entries with the Hub copies.');
+      }
       if (dryRun) console.log('[sync] (dry-run mode: no files were modified)');
 
       if (listUnpublished && doPublished) {
@@ -1467,6 +1512,7 @@ async function main() {
     - --status=draft,promoted,all       (only for published scope; default promoted+draft)
     - --export=<path.gepx>              (also bundle local assets into a .gepx archive)
     - --no-unpublished-list             (suppress local-only asset list)
+    - --force                           (overwrite local entries that share an id with a Hub asset; bypasses default-seed dedup)
     - --dry-run                         (preview without writing to local store)
   - solidify flags:
     - --dry-run
