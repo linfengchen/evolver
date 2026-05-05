@@ -47,7 +47,8 @@
     "test/build-exclude.test.js",
     "test/npm-pack-includes-scripts.test.js",
     "docker-compose.test.yml",
-    ".git/**"
+    ".git/**",
+    ".cursor/**"
   ],
   "rename": {
     "README.public.md": "README.md"
