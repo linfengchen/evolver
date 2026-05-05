@@ -39,23 +39,27 @@
 #   --skip-deploy-skills  Skip copying build output into ../skills/evolver/
 #                         (set this for beta releases so the local workspace
 #                         keeps running the stable version).
+#   --skip-binaries       Skip building & uploading standalone binaries.
+#                         Use only for emergency npm-only re-publishes.
 #   --skip-wrapper and --skip-deploy-skills are implied for any prerelease
 #   version unless explicitly overridden with --promote-local.
 #
 # Pipeline (all steps honor --dry-run):
-#   0. Preflight (gh auth, npm auth, branch match)
+#   0. Preflight (gh auth, npm auth, bun, branch match)
 #   1. Bump version in package.json
 #   2. Commit & push private-dev to the source branch
 #   3. Build public distribution (dist-public/) with RELEASE_VERSION pinned
 #   4. [stable only] Deploy dist-public/ to ../skills/evolver/
 #   5. Publish to GitHub public repo + create Release (with --prerelease if needed)
-#   6. Publish to npm with the correct --tag (latest|beta|alpha|rc|next|...)
-#   7. Verify: GitHub release state + npm dist-tags match expectations
-#   8. [stable only] Restart feishu-evolver-wrapper
+#   6. Build standalone binaries for 5 platforms and attach to the GitHub Release
+#   7. Publish to npm with the correct --tag (latest|beta|alpha|rc|next|...)
+#   8. Verify: GitHub release state + npm dist-tags match expectations
+#   9. [stable only] Restart feishu-evolver-wrapper
 #
 # Prerequisites:
 #   - gh CLI authenticated (gh auth login)
 #   - npm authenticated (npm whoami)
+#   - bun >= 1.3 installed (https://bun.com) -- can be skipped with --skip-binaries
 #   - Working copy clean on the target source branch
 #
 set -euo pipefail
@@ -72,6 +76,7 @@ BUMP=""
 DRY_RUN=false
 SKIP_WRAPPER=false
 SKIP_DEPLOY_SKILLS=false
+SKIP_BINARIES=false
 PROMOTE_LOCAL=false
 SOURCE_BRANCH=""
 NOTES_FILE=""
@@ -81,6 +86,7 @@ for arg in "$@"; do
         --dry-run)            DRY_RUN=true ;;
         --skip-wrapper)       SKIP_WRAPPER=true ;;
         --skip-deploy-skills) SKIP_DEPLOY_SKILLS=true ;;
+        --skip-binaries)      SKIP_BINARIES=true ;;
         --promote-local)      PROMOTE_LOCAL=true ;;
         --source-branch=*)    SOURCE_BRANCH="${arg#--source-branch=}" ;;
         --notes-file=*)       NOTES_FILE="${arg#--notes-file=}" ;;
@@ -107,6 +113,7 @@ if [ -z "$BUMP" ]; then
     echo "  --notes-file=<path>       Read GitHub Release notes from file"
     echo "  --skip-wrapper            Skip feishu-evolver-wrapper restart"
     echo "  --skip-deploy-skills      Skip local skills/evolver/ deploy"
+    echo "  --skip-binaries           Skip standalone binary build & upload"
     echo "  --promote-local           Force local deploy even on prerelease"
     echo ""
     echo "See header comments for five supported release scenarios."
@@ -167,8 +174,8 @@ if [ -z "$SOURCE_BRANCH" ]; then
     SOURCE_BRANCH="main"
 fi
 
-TOTAL_STEPS=8
-# Step numbers are fixed at 0..8. Skipped steps still print their number
+TOTAL_STEPS=9
+# Step numbers are fixed at 0..9. Skipped steps still print their number
 # so progress messages stay aligned with the header.
 
 echo "=== Evolver Deploy Pipeline ==="
@@ -218,6 +225,25 @@ if npm whoami &>/dev/null 2>&1; then
     echo "  npm auth: OK"
 else
     echo "  WARN: npm not authenticated -- npm publish may fail"
+fi
+
+if [ "$SKIP_BINARIES" = false ]; then
+    if command -v bun &>/dev/null; then
+        BUN_VERSION=$(bun --version 2>/dev/null)
+        BUN_MAJOR=${BUN_VERSION%%.*}
+        BUN_MINOR_PART=${BUN_VERSION#*.}
+        BUN_MINOR=${BUN_MINOR_PART%%.*}
+        if [ "${BUN_MAJOR:-0}" -lt 1 ] || { [ "${BUN_MAJOR:-0}" -eq 1 ] && [ "${BUN_MINOR:-0}" -lt 3 ]; }; then
+            echo "  ERROR: bun >= 1.3 required for binary build; found $BUN_VERSION"
+            echo "         Install/upgrade from https://bun.com or pass --skip-binaries"
+            exit 1
+        fi
+        echo "  bun: $BUN_VERSION OK"
+    else
+        echo "  ERROR: bun not found in PATH (needed for binary build)"
+        echo "         Install from https://bun.com or pass --skip-binaries"
+        exit 1
+    fi
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -330,8 +356,50 @@ if [ "$IS_PRERELEASE" = true ] && [ "$DRY_RUN" = false ]; then
     fi
 fi
 
-# --- Step 6: Publish npm with the right dist-tag ---
-echo "[6/$TOTAL_STEPS] Publishing to npm (@evomap/evolver, dist-tag=$NPM_DIST_TAG)..."
+# --- Step 6: Build & upload standalone binaries ---
+echo "[6/$TOTAL_STEPS] Building & uploading standalone binaries..."
+if [ "$SKIP_BINARIES" = true ]; then
+    echo "  (skipped -- --skip-binaries)"
+else
+    if [ "$DRY_RUN" = true ]; then
+        echo "  [dry-run] RELEASE_VERSION=$NEW_VERSION node scripts/build_binaries.js"
+        echo "  [dry-run] gh release upload v$NEW_VERSION dist-binaries/* --repo $PUBLIC_REPO --clobber"
+    else
+        # Build all 5 platform binaries (~7s) into dist-binaries/.
+        # The script is deterministic: same NEW_VERSION + same source = same sha256.
+        if RELEASE_VERSION="$NEW_VERSION" node scripts/build_binaries.js; then
+            # --clobber lets a re-run of deploy.sh overwrite stale assets if a
+            # prior step (e.g. npm publish) failed and we re-execute end-to-end.
+            if command -v gh &>/dev/null; then
+                gh release upload "v$NEW_VERSION" \
+                    dist-binaries/evolver-darwin-arm64 \
+                    dist-binaries/evolver-darwin-arm64.sha256 \
+                    dist-binaries/evolver-darwin-x64 \
+                    dist-binaries/evolver-darwin-x64.sha256 \
+                    dist-binaries/evolver-linux-x64 \
+                    dist-binaries/evolver-linux-x64.sha256 \
+                    dist-binaries/evolver-linux-arm64 \
+                    dist-binaries/evolver-linux-arm64.sha256 \
+                    dist-binaries/evolver-windows-x64.exe \
+                    dist-binaries/evolver-windows-x64.exe.sha256 \
+                    dist-binaries/SHA256SUMS.txt \
+                    --repo "$PUBLIC_REPO" \
+                    --clobber 2>&1 | sed 's/^/  /' \
+                    || echo "  WARN: gh release upload exited non-zero"
+            else
+                echo "  WARN: gh CLI not available; binaries built but not uploaded."
+                echo "        Manual upload: gh release upload v$NEW_VERSION dist-binaries/* --repo $PUBLIC_REPO --clobber"
+            fi
+        else
+            echo "  WARN: build_binaries.js failed; binaries NOT attached to release."
+            echo "        Re-run: RELEASE_VERSION=$NEW_VERSION node scripts/build_binaries.js"
+            echo "        Then:   gh release upload v$NEW_VERSION dist-binaries/* --repo $PUBLIC_REPO --clobber"
+        fi
+    fi
+fi
+
+# --- Step 7: Publish npm with the right dist-tag ---
+echo "[7/$TOTAL_STEPS] Publishing to npm (@evomap/evolver, dist-tag=$NPM_DIST_TAG)..."
 if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] cd dist-public && npm publish --access public --tag $NPM_DIST_TAG"
 else
@@ -339,8 +407,8 @@ else
         || echo "  WARN: npm publish failed -- check 'npm login' or version conflict"
 fi
 
-# --- Step 7: Verify ---
-echo "[7/$TOTAL_STEPS] Verifying release..."
+# --- Step 8: Verify ---
+echo "[8/$TOTAL_STEPS] Verifying release..."
 if [ "$DRY_RUN" = true ]; then
     echo "  [dry-run] skipping verification"
 else
@@ -360,9 +428,9 @@ else
     fi
 fi
 
-# --- Step 8: Restart wrapper (stable only) ---
+# --- Step 9: Restart wrapper (stable only) ---
 if [ "$SKIP_WRAPPER" = false ]; then
-    echo "[8/$TOTAL_STEPS] Restarting feishu-evolver-wrapper..."
+    echo "[9/$TOTAL_STEPS] Restarting feishu-evolver-wrapper..."
     if [ -d "$WRAPPER_DIR" ] && [ -f "$WRAPPER_DIR/index.js" ]; then
         if [ "$DRY_RUN" = true ]; then
             echo "  [dry-run] pkill + restart feishu-evolver-wrapper"
@@ -379,7 +447,7 @@ if [ "$SKIP_WRAPPER" = false ]; then
         echo "  SKIP: feishu-evolver-wrapper not found at $WRAPPER_DIR"
     fi
 else
-    echo "[8/$TOTAL_STEPS] (skipped -- prerelease or --skip-wrapper)"
+    echo "[9/$TOTAL_STEPS] (skipped -- prerelease or --skip-wrapper)"
 fi
 
 # --- Summary ---
