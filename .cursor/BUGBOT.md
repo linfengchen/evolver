@@ -45,20 +45,12 @@ public repo and to npm. Block PRs that:
 - Reference `EvoMap/evolver-private-dev` (this repo's URL) inside any file
   that is part of the public include set.
 
-**Two BUGBOT files, by design.** This repo carries two Bugbot rule files:
-
-- `.cursor/BUGBOT.md` (this file) — applies to PRs in `evolver-private-dev`.
-  It is in the manifest's `exclude` list so it never ships to the public
-  mirror.
-- `.cursor/BUGBOT.public.md` — applies to PRs in `EvoMap/evolver`. It is in
-  the manifest's `include` list and is renamed to `.cursor/BUGBOT.md` in
-  `dist-public/` by the `rename` rule. The two files diverge intentionally;
-  the public version drops private-only sections (e.g. obfuscate-list
-  guidance, leak prevention) and adds external-contributor guidance
-  (e.g. don't review obfuscated code, watch the asset-store invariant).
-
-When changing review rules that should apply to both audiences, update both
-files in the same PR. When a rule is private-only, only edit this file.
+**This file is private-only.** `.cursor/BUGBOT.md` is private to this repo
+and is pruned from the public build via `public.manifest.json`'s
+`exclude: [".cursor/**"]`. Project-specific rules for the public mirror
+`EvoMap/evolver` (if any are needed) live in the Cursor dashboard's
+repository manual rules, not in the source tree, so the published npm
+package and the public GitHub repo do not carry editor-tool config files.
 
 ### 3. GEP asset integrity
 
