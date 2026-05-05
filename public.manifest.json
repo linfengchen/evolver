@@ -18,7 +18,8 @@
     "examples/**",
     ".github/**",
     ".gitignore",
-    ".npmignore"
+    ".npmignore",
+    ".cursor/BUGBOT.public.md"
   ],
   "exclude": [
     "assets/gep/candidates.jsonl",
@@ -48,10 +49,11 @@
     "test/npm-pack-includes-scripts.test.js",
     "docker-compose.test.yml",
     ".git/**",
-    ".cursor/**"
+    ".cursor/BUGBOT.md"
   ],
   "rename": {
-    "README.public.md": "README.md"
+    "README.public.md": "README.md",
+    ".cursor/BUGBOT.public.md": ".cursor/BUGBOT.md"
   },
   "obfuscate": [
     "src/evolve.js",
