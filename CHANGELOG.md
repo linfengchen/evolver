@@ -2,6 +2,50 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.79.0] - 2026-05-06
+
+### Fixed
+
+- **Cycle hard-timeout watchdog (issue #19).** The daemon main loop in
+  `index.js` previously called `await evolve.run()` with no upper bound,
+  so a single hung cycle (unclosed socket, stalled LLM call, etc.) could
+  freeze the process indefinitely. One reporter observed cycle #5372
+  stuck for 22 days at 0% CPU.
+
+  `evolve.run()` is now wrapped in `Promise.race(evolvePromise,
+  cycleTimeoutPromise)`. When the timeout fires, the daemon emits a
+  `[Daemon] Cycle hard-timeout exceeded after Nms (cycle=N, phase=Y)`
+  diagnostic, force-spawns a replacement process, and exits with code 1
+  so a host wrapper observes the dead pid.
+
+  New environment variables (both opt-out, default-on):
+
+  - `EVOLVER_CYCLE_TIMEOUT_ENABLED` (default `true`).
+  - `EVOLVER_CYCLE_TIMEOUT_MS` (default `2700000`, i.e. 45 minutes).
+  - `EVOLVER_PROGRESS_UPDATE_MS` (default `60000`).
+
+### Added
+
+- **`memory/evolution/cycle_progress.json` heartbeat.** The daemon now
+  atomically writes a small JSON heartbeat at cycle start, every 60s
+  while `evolve.run()` is in flight, and again at sleep entry. External
+  watchdogs can poll `updated_at` to detect a true freeze (the file
+  stays stale for >30 minutes only when the inner event loop is
+  genuinely hung; normal long LLM cycles still refresh it via the
+  60-second ticker).
+
+  Schema:
+
+  ```json
+  { "pid": 12345, "outer_cycle": 5372, "inner_cycle": 17,
+    "started_at": 1746543112000, "phase": "evolve.run|sleep|cycle_timeout_respawn",
+    "updated_at": 1746543210000 }
+  ```
+
+  Regression tests: `test/cycleHardTimeout.test.js` (11 cases) and
+  `test/cycleProgressFile.test.js` (4 cases).
+
+
 ## [1.78.9] - 2026-05-04
 
 ### Fixed
