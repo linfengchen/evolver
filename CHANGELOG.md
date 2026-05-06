@@ -2,6 +2,46 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.79.1] - 2026-05-06
+
+### Fixed
+
+- **Windows cmd-popup loop on suicide-respawn (issue #528).** On Windows,
+  `child_process.spawn(detached: true, windowsHide: true)` allocates a new
+  conhost (cmd) window every time -- `windowsHide` is silently ignored in
+  detached mode, see Node.js child_process docs. So every time the daemon
+  hit `EVOLVER_MAX_CYCLES` (default 100) or `EVOLVER_MAX_RSS_MB` (default
+  500) and ran the suicide-respawn, Windows users saw a new cmd popup.
+  v1.79.0 made this worse by adding a third spawn site for the cycle
+  hard-timeout, copying the same buggy options.
+
+  The two in-process spawn sites are now consolidated into one helper
+  `spawnReplacementProcess()` that, on Windows, defaults to *not*
+  spawning. Instead the daemon `process.exit(1)`s and lets an external
+  supervisor restart it. Compatible supervisors:
+
+  - `feishu-evolver-wrapper` `>= 1.10.0` (recommended; already does
+    auto-restart with backoff and now also handles inner stuck cycles).
+  - NSSM (Non-Sucking Service Manager).
+  - pm2-windows-startup.
+  - Windows Task Scheduler with "On failure: restart" rule.
+
+  Users who explicitly want the in-process respawn (and accept the cmd
+  popups) can opt back in with `EVOLVER_SUICIDE_WINDOWS=true`.
+
+  No behavior change on macOS/Linux.
+
+### Notes on the original report
+
+The reporter's auto-generated diagnosis attributed a separate symptom
+("`evolver buy/orders/publish` subcommands break the daemon") to lock
+contention on `evolver.pid`. That hypothesis is incorrect: subcommands
+do not call `acquireLock()` -- only `--loop` does. What the reporter
+observed was the same suicide-respawn cycle ending exactly when a
+subcommand happened to run, and the new conhost popup made it look like
+the subcommand caused it. Fixing the popup also fixes the perceived
+"daemon got killed" symptom.
+
 ## [1.79.0] - 2026-05-06
 
 ### Fixed
