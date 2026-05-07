@@ -52,7 +52,52 @@ class LifecycleManager {
   }
 
   get nodeSecret() {
-    return this.store.getState('node_secret') || process.env.A2A_NODE_SECRET || null;
+    return this._resolveNodeSecret();
+  }
+
+  /**
+   * Resolve the active node_secret with conflict reconciliation between the
+   * persistent MailboxStore and `process.env.A2A_NODE_SECRET`.
+   *
+   * The store is normally authoritative because it is updated whenever
+   * /a2a/hello returns a fresh secret (including rotations). However, if the
+   * operator explicitly sets `A2A_NODE_SECRET` in the environment AND it
+   * disagrees with the stored value, the env var wins and we sync the store
+   * back to the env value. This breaks the failure mode reported in
+   * EvoMap/evolver#529 where a stale secret persisted in
+   * `~/.evomap/mailbox/state.json` keeps overriding a freshly minted secret
+   * exported from `.env`, producing an infinite re-auth loop:
+   *   stale store secret -> hello "OK" (lenient path) -> heartbeat 403
+   *   -> rotate_secret hello -> node_id_already_claimed (because the bearer
+   *   we sent could not prove ownership) -> 30-min backoff.
+   *
+   * Single-source mode (only one of store/env present) is unchanged.
+   * @returns {string|null}
+   */
+  _resolveNodeSecret() {
+    const envSecret = this._suppressEnvSecret
+      ? null
+      : ((process.env.A2A_NODE_SECRET || '').trim() || null);
+    const storeSecret = this.store.getState('node_secret') || null;
+    const valid = (s) => typeof s === 'string' && /^[a-f0-9]{64}$/i.test(s);
+
+    if (envSecret && storeSecret && envSecret !== storeSecret) {
+      if (valid(envSecret)) {
+        this.store.setState('node_secret', envSecret);
+        if (!this._envOverrideLogged) {
+          this._envOverrideLogged = true;
+          this.logger.warn(
+            '[lifecycle] A2A_NODE_SECRET env var differs from MailboxStore; using env value and syncing store. ' +
+              'Clear ~/.evomap/mailbox/state.json or unset A2A_NODE_SECRET to silence this warning.'
+          );
+        }
+        return envSecret;
+      }
+      // env var malformed -- ignore it, fall back to store
+      return storeSecret;
+    }
+
+    return storeSecret || envSecret || null;
   }
 
   _buildHeaders() {
@@ -136,6 +181,14 @@ class LifecycleManager {
   /**
    * Re-authenticate after 403: rotate secret via hello, then verify with a
    * heartbeat. Returns true if auth is restored, false otherwise.
+   *
+   * Recovery sequence (issue EvoMap/evolver#529):
+   *   attempt 1 -> hello with current Bearer + rotate_secret=true
+   *                (works when the stale secret is still recognised)
+   *   attempt 2 -> drop the bearer locally, hello WITHOUT Authorization
+   *                + rotate_secret=true. If the node is owned by someone
+   *                else, hub returns node_id_already_claimed; we surface a
+   *                manual-reset hint to the user instead of churning forever.
    */
   async reAuthenticate() {
     if (this._reauthInProgress) return false;
@@ -145,6 +198,7 @@ class LifecycleManager {
       return false;
     }
     this._reauthInProgress = true;
+    let manualResetRequired = false;
     try {
       for (let attempt = 1; attempt <= MAX_REAUTH_ATTEMPTS; attempt++) {
         this.logger.warn(`[lifecycle] re-auth attempt ${attempt}/${MAX_REAUTH_ATTEMPTS}: rotating secret via hello...`);
@@ -152,6 +206,18 @@ class LifecycleManager {
         if (!helloResult.ok) {
           this.logger.error(`[lifecycle] re-auth hello failed: ${helloResult.error}`);
           if (helloResult.error === 'hello_rate_limited' || helloResult.error === 'hello_rate_limit_active') break;
+          if (typeof helloResult.error === 'string' && helloResult.error.startsWith('node_id_already_claimed')) {
+            // Hub does not believe we own this nodeId. Our locally cached
+            // secret(s) are useless. Drop them so attempt 2 retries WITHOUT
+            // a Bearer (lenient hello path). If even unauthenticated rotate
+            // is rejected, only a manual reset can recover.
+            if (attempt < MAX_REAUTH_ATTEMPTS) {
+              this._dropLocalSecret('node_id_already_claimed');
+              continue;
+            }
+            manualResetRequired = true;
+            break;
+          }
           continue;
         }
         const newSecret = helloResult.response?.payload?.node_secret;
@@ -162,15 +228,51 @@ class LifecycleManager {
         const hbResult = await this.heartbeat({ _skipReauth: true });
         if (hbResult.ok) {
           this.logger.log('[lifecycle] re-auth succeeded: heartbeat confirmed with new secret');
+          this._envOverrideLogged = false;
           return true;
         }
         this.logger.warn(`[lifecycle] re-auth attempt ${attempt}: heartbeat still failing after rotate`);
+      }
+      if (manualResetRequired) {
+        this._emitManualResetNeeded();
       }
       this.logger.error('[lifecycle] re-auth exhausted all attempts, backing off for 30 minutes');
       this._reauthBackoffUntil = Date.now() + 30 * 60_000;
       return false;
     } finally {
       this._reauthInProgress = false;
+    }
+  }
+
+  /**
+   * Drop the cached node_secret in MailboxStore AND signal the env-var path to
+   * skip its value for this process lifetime. Used when the hub explicitly
+   * disowns our claim.
+   * @param {string} reason - log tag describing why we are dropping it.
+   */
+  _dropLocalSecret(reason) {
+    this.logger.warn(`[lifecycle] dropping cached node_secret (reason=${reason}); next hello will run unauthenticated`);
+    try { this.store.setState('node_secret', ''); } catch { /* best-effort */ }
+    // Suppress the env override for this process so _resolveNodeSecret stops
+    // re-seeding the store with the same stale env value next call.
+    this._suppressEnvSecret = true;
+  }
+
+  _emitManualResetNeeded() {
+    try {
+      this.store.writeInbound({
+        type: 'system',
+        priority: 'high',
+        channel: 'evomap-hub',
+        payload: {
+          action: 'manual_secret_reset_required',
+          message:
+            'Hub disowns this node_id (node_id_already_claimed). Local node_secret in MailboxStore and A2A_NODE_SECRET env var are both invalid. Visit https://evomap.ai/account, click "Reset Secret" on the agent card, then update A2A_NODE_SECRET (or delete ~/.evomap/mailbox/state.json) and restart proxy.',
+          docs_url: 'https://evomap.ai/account',
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`[lifecycle] failed to emit manual_secret_reset_required event: ${err.message}`);
     }
   }
 
