@@ -1682,7 +1682,7 @@ async function main() {
   - distill flags:
     - --response-file=<path>  (LLM response file for skill distillation)
   - setup-hooks flags:
-    - --platform=cursor|claude-code|codex  (auto-detect if omitted)
+    - --platform=cursor|claude-code|codex|kiro|opencode  (auto-detect if omitted)
     - --force                              (overwrite existing config)
     - --uninstall                          (remove evolver hooks)
   - asset-log flags:

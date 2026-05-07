@@ -2,6 +2,28 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.80.0] - 2026-05-07
+
+### Added
+
+- **First-party opencode adapter (issue #523).** `evolver setup-hooks
+  --platform=opencode` now installs a managed plugin at
+  `.opencode/plugins/evolver.js` plus the three evolver hook scripts in
+  `.opencode/hooks/`. The plugin wires opencode's `session.created`,
+  `session.idle`, and `tool.execute.after` events to the existing
+  `evolver-session-start.js` / `evolver-session-end.js` /
+  `evolver-signal-detect.js` filters, so the runtime behavior matches
+  Cursor / Claude Code / Codex / Kiro.
+
+  Works with both project-level (`./.opencode/`) and user-level
+  (`~/.opencode/`) installs. The plugin file is marked
+  `_evolver_managed: true` on the first line so `--uninstall` only
+  removes evolver-managed files and leaves user-authored plugins in
+  `.opencode/plugins/` alone. Restart opencode after install to load
+  the plugin.
+
+  See README for the platform table.
+
 ## [1.79.1] - 2026-05-06
 
 ### Fixed

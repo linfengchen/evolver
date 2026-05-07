@@ -7,6 +7,7 @@ const PLATFORMS = {
   'claude-code': { name: 'Claude Code', configDir: '.claude', detector: '.claude' },
   codex: { name: 'Codex', configDir: '.codex', detector: '.codex' },
   kiro: { name: 'Kiro', configDir: '.kiro', detector: '.kiro' },
+  opencode: { name: 'opencode', configDir: '.opencode', detector: '.opencode' },
 };
 
 function detectPlatform(cwd) {
@@ -37,6 +38,7 @@ function loadAdapter(platformId) {
     case 'claude-code': return require('./claudeCode');
     case 'codex': return require('./codex');
     case 'kiro': return require('./kiro');
+    case 'opencode': return require('./opencode');
     default: return null;
   }
 }
@@ -165,7 +167,7 @@ async function setupHooks({ platform, cwd, force, uninstall, evolverRoot } = {})
   const platformId = platform || detectPlatform(effectiveCwd);
 
   if (!platformId) {
-    console.error('[setup-hooks] Could not detect platform. Use --platform=cursor|claude-code|codex|kiro');
+    console.error('[setup-hooks] Could not detect platform. Use --platform=cursor|claude-code|codex|kiro|opencode');
     return { ok: false, error: 'platform_not_detected' };
   }
 
