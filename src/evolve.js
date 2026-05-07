@@ -7,16 +7,11 @@ const { execSync } = require('child_process');
 // on large repos). See GHSA reports / issue #451.
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
 const { getRepoRoot, getMemoryDir, getSessionScope, getAgentSessionsDir } = require('./gep/paths');
-const { extractSignals } = require('./gep/signals');
 const {
-  loadGenes,
-  loadCapsules,
-  readAllEvents,
   getLastEventId,
   readRecentFailedCapsules,
   ensureAssetFiles,
 } = require('./gep/assetStore');
-const { selectGeneAndCapsule } = require('./gep/selector');
 const { buildGepPrompt, buildReusePrompt, buildHubMatchedBlock } = require('./gep/prompt');
 const { hubSearch } = require('./gep/hubSearch');
 const { logAssetCall } = require('./gep/assetCallLog');
@@ -25,23 +20,17 @@ const memoryAdapter = require('./gep/memoryGraphAdapter');
 const {
   getAdvice: getMemoryAdvice,
   recordSignalSnapshot,
-  recordHypothesis,
-  recordAttempt,
   recordOutcome: recordOutcomeFromState,
   memoryGraphPath,
 } = memoryAdapter;
 const { readStateForSolidify, writeStateForSolidify } = require('./gep/solidify');
 const { fetchTasks, selectBestTask, claimTask, taskToSignals, taskToSignalsWithPrivacy, claimWorkerTask, estimateCommitmentDeadline, detectPrivacyTask } = require('./gep/taskReceiver');
 const { generateQuestions } = require('./gep/questionGenerator');
-const { buildMutation, isHighRiskMutationAllowed } = require('./gep/mutation');
-const { selectPersonalityForRun } = require('./gep/personality');
 const { clip, writePromptArtifact, renderSessionsSpawnCall } = require('./gep/bridge');
 const { getEvolutionDir } = require('./gep/paths');
 const { shouldReflect, buildReflectionContext, recordReflection, buildSuggestedMutations } = require('./gep/reflection');
 const { loadNarrativeSummary } = require('./gep/narrativeMemory');
 const { maybeReportIssue } = require('./gep/issueReporter');
-const { resolveStrategy } = require('./gep/strategy');
-const { expandSignals } = require('./gep/learningSignals');
 const { tryExplore } = require('./gep/explore');
 const _shield = require('./gep/shield');
 const _integrity = require('./gep/integrityCheck');
@@ -59,35 +48,10 @@ function verbose(...args) {
   console.log.apply(console, args);
 }
 
-// Idle-cycle gating: track last Hub fetch to avoid redundant API calls during saturation.
-// When evolver is saturated (no actionable signals), Hub calls are throttled to at most
-// once per EVOLVER_IDLE_FETCH_INTERVAL_MS (default 30 min) instead of every cycle.
+// Idle-cycle gating: tracks the timestamp of the last Hub fetch across cycles.
+// Gating logic (shouldSkipHubCalls) lives in pipeline/signals.js; this variable
+// is passed in as lastHubFetchMs and updated here after a successful Hub fetch.
 let _lastHubFetchMs = 0;
-
-function shouldSkipHubCalls(signals) {
-  if (!Array.isArray(signals)) return false;
-  const saturationIndicators = ['force_steady_state', 'evolution_saturation', 'empty_cycle_loop_detected'];
-  let hasSaturation = false;
-  for (let si = 0; si < saturationIndicators.length; si++) {
-    if (signals.indexOf(saturationIndicators[si]) !== -1) { hasSaturation = true; break; }
-  }
-  if (!hasSaturation) return false;
-
-  const actionablePatterns = [
-    'log_error', 'recurring_error', 'capability_gap', 'perf_bottleneck',
-    'external_task', 'bounty_task', 'overdue_task', 'urgent',
-    'unsupported_input_type',
-  ];
-  for (let ai = 0; ai < signals.length; ai++) {
-    const s = signals[ai];
-    if (actionablePatterns.indexOf(s) !== -1) return false;
-    if (s.indexOf('errsig:') === 0) return false;
-    if (s.indexOf('user_feature_request:') === 0 && s.length > 21) return false;
-    if (s.indexOf('user_improvement_suggestion:') === 0 && s.length > 28) return false;
-  }
-  return true;
-}
-
 
 function extractFirstUserMessage(content) {
   if (!content) return null;
@@ -173,6 +137,8 @@ try {
 // computed with .env values already in process.env.
 const _guards = require('./evolve/guards');
 const _collect = require('./evolve/pipeline/collect');
+const _signals = require('./evolve/pipeline/signals');
+const _select = require('./evolve/pipeline/select');
 const { collectTranscriptFiles, readFileHead } = require('./evolve/utils');
 
 // Configuration from CLI flags or Env
@@ -196,73 +162,6 @@ try {
   if (!fs.existsSync(MEMORY_DIR)) fs.mkdirSync(MEMORY_DIR, { recursive: true });
 } catch (e) {
   console.warn('[Evolver] Failed to create MEMORY_DIR (may cause downstream errors):', e && e.message || e);
-}
-
-function computeAdaptiveStrategyPolicy(opts) {
-  const recentEvents = Array.isArray(opts && opts.recentEvents) ? opts.recentEvents : [];
-  const selectedGene = opts && opts.selectedGene ? opts.selectedGene : null;
-  const signals = Array.isArray(opts && opts.signals) ? opts.signals : [];
-  const baseStrategy = resolveStrategy({ signals: signals });
-
-  const tail = recentEvents.slice(-8);
-  let repairStreak = 0;
-  for (let i = tail.length - 1; i >= 0; i--) {
-    if (tail[i] && tail[i].intent === 'repair') repairStreak++;
-    else break;
-  }
-  let failureStreak = 0;
-  for (let i = tail.length - 1; i >= 0; i--) {
-    if (tail[i] && tail[i].outcome && tail[i].outcome.status === 'failed') failureStreak++;
-    else break;
-  }
-
-  const antiPatterns = selectedGene && Array.isArray(selectedGene.anti_patterns) ? selectedGene.anti_patterns.slice(-5) : [];
-  const learningHistory = selectedGene && Array.isArray(selectedGene.learning_history) ? selectedGene.learning_history.slice(-6) : [];
-  const signalTags = new Set(expandSignals(signals, ''));
-  const overlappingAntiPatterns = antiPatterns.filter(function (ap) {
-    return ap && Array.isArray(ap.learning_signals) && ap.learning_signals.some(function (tag) {
-      return signalTags.has(String(tag));
-    });
-  });
-  const hardFailures = overlappingAntiPatterns.filter(function (ap) { return ap && ap.mode === 'hard'; }).length;
-  const softFailures = overlappingAntiPatterns.filter(function (ap) { return ap && ap.mode !== 'hard'; }).length;
-  const recentSuccesses = learningHistory.filter(function (x) { return x && x.outcome === 'success'; }).length;
-
-  const stagnation = signals.includes('stable_success_plateau') ||
-    signals.includes('evolution_saturation') ||
-    signals.includes('empty_cycle_loop_detected') ||
-    failureStreak >= 3 ||
-    repairStreak >= 3;
-
-  const forceInnovate = stagnation && !signals.includes('log_error');
-  const highRiskGene = hardFailures >= 1 || (softFailures >= 2 && recentSuccesses === 0);
-  const cautiousExecution = highRiskGene || failureStreak >= 2;
-
-  let blastRadiusMaxFiles = selectedGene && selectedGene.constraints && Number.isFinite(Number(selectedGene.constraints.max_files))
-    ? Number(selectedGene.constraints.max_files)
-    : 12;
-  if (cautiousExecution) blastRadiusMaxFiles = Math.max(2, Math.min(blastRadiusMaxFiles, 6));
-  else if (forceInnovate) blastRadiusMaxFiles = Math.max(3, Math.min(blastRadiusMaxFiles, 10));
-
-  const directives = [];
-  directives.push('Base strategy: ' + baseStrategy.label + ' (' + baseStrategy.description + ')');
-  if (forceInnovate) directives.push('Force strategy shift: prefer innovate over repeating repair/optimize.');
-  if (highRiskGene) directives.push('Selected gene is high risk for current signals; keep blast radius narrow and prefer smallest viable change.');
-  if (failureStreak >= 2) directives.push('Recent failure streak detected; avoid repeating recent failed approach.');
-  directives.push('Target max files for this cycle: ' + blastRadiusMaxFiles + '.');
-
-  return {
-    name: baseStrategy.name,
-    label: baseStrategy.label,
-    description: baseStrategy.description,
-    forceInnovate: forceInnovate,
-    cautiousExecution: cautiousExecution,
-    highRiskGene: highRiskGene,
-    repairStreak: repairStreak,
-    failureStreak: failureStreak,
-    blastRadiusMaxFiles: blastRadiusMaxFiles,
-    directives: directives,
-  };
 }
 
 const STATE_FILE = path.join(getEvolutionDir(), 'evolution_state.json');
@@ -417,7 +316,7 @@ async function run() {
   let ctx = await _guards.runGuards({});
   if (ctx.abort) return;
 
-  const { bridgeEnabled, dormantHypothesis } = ctx;
+  const { bridgeEnabled } = ctx;
 
   const startTime = Date.now();
   verbose('--- evolve.run() start ---');
@@ -447,94 +346,10 @@ async function run() {
   const scanTime = Date.now() - startTime;
   const initialUserPrompt = getCurrentSessionInitialPrompt();
 
-  const genes = loadGenes();
-  const capsules = loadCapsules();
-  const recentEvents = (() => {
-    try {
-      const all = readAllEvents();
-      return Array.isArray(all) ? all.filter(e => e && e.type === 'EvolutionEvent').slice(-80) : [];
-    } catch (e) {
-      return [];
-    }
-  })();
-  const signals = extractSignals({
-    recentSessionTranscript: recentMasterLog,
-    todayLog,
-    memorySnippet,
-    userSnippet,
-    recentEvents,
-  });
-
-  verbose('Signals extracted (' + signals.length + '):', signals.join(', '));
-  verbose('Recent events: ' + recentEvents.length + ', session log size: ' + recentMasterLog.length + ' chars');
-
-  if (dormantHypothesis && Array.isArray(dormantHypothesis.signals) && dormantHypothesis.signals.length > 0) {
-    const dormantSignals = dormantHypothesis.signals;
-    let injected = 0;
-    for (let dsi = 0; dsi < dormantSignals.length; dsi++) {
-      if (!signals.includes(dormantSignals[dsi])) {
-        signals.push(dormantSignals[dsi]);
-        injected++;
-      }
-    }
-    if (injected > 0) {
-      console.log('[DormantHypothesis] Injected ' + injected + ' signal(s) from previous interrupted cycle.');
-    }
-  }
-
-  // --- Idle-cycle gating: skip Hub API calls during saturation to save credits ---
-  let _idleFetchInterval = parseInt(String(process.env.EVOLVER_IDLE_FETCH_INTERVAL_MS || ''), 10);
-  if (!Number.isFinite(_idleFetchInterval) || _idleFetchInterval <= 0) _idleFetchInterval = 600000;
-  let skipHubCalls = false;
-
-  if (shouldSkipHubCalls(signals)) {
-    const _elapsed = Date.now() - _lastHubFetchMs;
-    if (_lastHubFetchMs > 0 && _elapsed < _idleFetchInterval) {
-      skipHubCalls = true;
-      console.log('[IdleGating] Saturated with no actionable signals. Skipping Hub API calls (last fetch ' + Math.round(_elapsed / 1000) + 's ago, threshold ' + Math.round(_idleFetchInterval / 1000) + 's).');
-      if (process.env.EVOLVER_DEBUG_TASKS === '1') {
-        console.log('[IdleGating:debug] Task fetch/claim is skipped this cycle because of idle gating. To force Hub fetches on every cycle, lower EVOLVER_IDLE_FETCH_INTERVAL_MS (e.g. =0). To make a signal actionable and bypass the gate, publish signals like bounty_task, external_task, log_error, etc.');
-      }
-    } else {
-      console.log('[IdleGating] Saturated but fetch interval elapsed (' + Math.round((Date.now() - _lastHubFetchMs) / 1000) + 's). Performing periodic Hub check.');
-    }
-  }
-
-  // Inject retry context from previous validation failure.
-  try {
-    var solidifyState = readStateForSolidify();
-    if (solidifyState && solidifyState.last_validation_failure) {
-      var lvf = solidifyState.last_validation_failure;
-      signals.push('retry_error_context');
-      if (lvf.cmd) signals.push('retry_cmd:' + String(lvf.cmd).slice(0, 80));
-      if (lvf.stderr) signals.push('retry_stderr:' + String(lvf.stderr).slice(0, 120));
-      console.log('[RetryContext] Injected validation failure context from previous solidify (retries=' + (lvf.retries_attempted || 0) + ').');
-    }
-  } catch (_) {}
-
-  // Curriculum engine: generate progressive evolution targets.
-  try {
-    var { generateCurriculumSignals } = require('./gep/curriculum');
-    var { getNoveltyHint: _getNoveltyHintEarly, getCapabilityGaps: _getCapGapsEarly } = require('./gep/a2aProtocol');
-    var earlyCapGaps = [];
-    try { earlyCapGaps = _getCapGapsEarly() || []; } catch (_) {}
-    var memGraphPath = require('./gep/memoryGraph').memoryGraphPath ? require('./gep/memoryGraph').memoryGraphPath() : '';
-    var curriculumSignals = generateCurriculumSignals({
-      capabilityGaps: earlyCapGaps,
-      memoryGraphPath: memGraphPath,
-      personality: {},
-    });
-    for (var ci = 0; ci < curriculumSignals.length; ci++) {
-      if (!signals.includes(curriculumSignals[ci])) {
-        signals.push(curriculumSignals[ci]);
-      }
-    }
-    if (curriculumSignals.length > 0) {
-      console.log('[Curriculum] Injected ' + curriculumSignals.length + ' curriculum target(s).');
-    }
-  } catch (e) {
-    console.log('[Curriculum] Failed (non-fatal): ' + (e && e.message ? e.message : e));
-  }
+  // Stage 3: load GEP assets (genes/capsules/events), extract signals from transcripts,
+  // inject dormant-hypothesis / retry-context / curriculum signals, compute idle-gating.
+  ctx = await _signals.extractSignalsStage({ ...ctx, lastHubFetchMs: _lastHubFetchMs });
+  const { genes, capsules, recentEvents, signals, skipHubCalls } = ctx;
 
   // --- Hub Task Auto-Claim (with proactive questions) ---
   // Generate questions from current context, piggyback them on the fetch call,
@@ -1160,130 +975,20 @@ async function run() {
     console.warn('[Plateau] Detection failed (non-fatal):', e && e.message || e);
   }
 
-  const { selectedGene, capsuleCandidates, selector } = selectGeneAndCapsule({
-    genes,
-    capsules,
-    signals,
+  // Stage 6: select gene + capsule, compute strategy policy and personality, build mutation,
+  // record hypothesis and attempt in memory graph (both blocking — refuses to evolve on failure).
+  ctx = await _select.selectAndMutate({
+    ...ctx,
+    IS_RANDOM_DRIFT,
     memoryAdvice,
-    driftEnabled: IS_RANDOM_DRIFT,
-    failedCapsules: recentFailedCapsules,
-    capabilityGaps: heartbeatCapGaps,
-    noveltyScore: heartbeatNovelty && Number.isFinite(heartbeatNovelty.score) ? heartbeatNovelty.score : null,
+    recentFailedCapsules,
+    heartbeatCapGaps,
+    heartbeatNovelty,
     plateauOverride,
+    observations,
+    hubHit,
   });
-
-  const selectedBy = memoryAdvice && memoryAdvice.preferredGeneId ? 'memory_graph+selector' : 'selector';
-  const capsulesUsed = Array.isArray(capsuleCandidates)
-    ? capsuleCandidates.map(c => (c && c.id ? String(c.id) : null)).filter(Boolean)
-    : [];
-  const selectedCapsuleId = capsulesUsed.length ? capsulesUsed[0] : null;
-  const strategyPolicy = computeAdaptiveStrategyPolicy({
-    recentEvents,
-    selectedGene,
-    signals,
-  });
-
-  verbose('Gene selection: gene=' + (selectedGene ? selectedGene.id : '(none)') + ' capsule=' + (selectedCapsuleId || '(none)') + ' selectedBy=' + selectedBy + ' selector=' + (selector || '(none)'));
-  verbose('Strategy policy: name=' + strategyPolicy.name + ' forceInnovate=' + strategyPolicy.forceInnovate + ' cautious=' + strategyPolicy.cautiousExecution + ' maxFiles=' + strategyPolicy.blastRadiusMaxFiles);
-  if (memoryAdvice) {
-    verbose('Memory advice: preferred=' + (memoryAdvice.preferredGeneId || '(none)') + ' banned=[' + (Array.isArray(memoryAdvice.bannedGeneIds) ? memoryAdvice.bannedGeneIds.join(',') : '') + ']');
-  }
-
-  // Personality selection (natural selection + small mutation when triggered).
-  // This state is persisted in MEMORY_DIR and is treated as an evolution control surface (not role-play).
-  const personalitySelection = selectPersonalityForRun({
-    driftEnabled: IS_RANDOM_DRIFT,
-    signals,
-    recentEvents,
-  });
-  const personalityState = personalitySelection && personalitySelection.personality_state ? personalitySelection.personality_state : null;
-
-  // Mutation object is mandatory for every evolution run.
-  const tail = Array.isArray(recentEvents) ? recentEvents.slice(-6) : [];
-  const tailOutcomes = tail
-    .map(e => (e && e.outcome && e.outcome.status ? String(e.outcome.status) : null))
-    .filter(Boolean);
-  const stableSuccess = tailOutcomes.length >= 6 && tailOutcomes.every(s => s === 'success');
-  const tailAvgScore =
-    tail.length > 0
-      ? tail.reduce((acc, e) => acc + (e && e.outcome && Number.isFinite(Number(e.outcome.score)) ? Number(e.outcome.score) : 0), 0) /
-        tail.length
-      : 0;
-  const innovationPressure =
-    !IS_RANDOM_DRIFT &&
-    personalityState &&
-    Number.isFinite(Number(personalityState.creativity)) &&
-    Number(personalityState.creativity) >= 0.75 &&
-    stableSuccess &&
-    tailAvgScore >= 0.7;
-  const forceInnovation =
-    String(process.env.FORCE_INNOVATION || process.env.EVOLVE_FORCE_INNOVATION || '').toLowerCase() === 'true';
-  const mutationInnovateMode = !!IS_RANDOM_DRIFT || !!innovationPressure || !!forceInnovation || !!strategyPolicy.forceInnovate;
-  const mutationSignals = innovationPressure ? [...(Array.isArray(signals) ? signals : []), 'stable_success_plateau'] : signals;
-  const mutationSignalsEffective = (forceInnovation || strategyPolicy.forceInnovate)
-    ? [...(Array.isArray(mutationSignals) ? mutationSignals : []), 'force_innovation']
-    : mutationSignals;
-
-  const allowHighRisk =
-    !!IS_RANDOM_DRIFT &&
-    !!personalitySelection &&
-    !!personalitySelection.personality_known &&
-    personalityState &&
-    isHighRiskMutationAllowed(personalityState) &&
-    Number(personalityState.rigor) >= 0.8 &&
-    Number(personalityState.risk_tolerance) <= 0.3 &&
-    !(Array.isArray(signals) && signals.includes('log_error'));
-  const mutation = buildMutation({
-    signals: mutationSignalsEffective,
-    selectedGene,
-    driftEnabled: mutationInnovateMode,
-    personalityState,
-    allowHighRisk,
-  });
-
-  verbose('Mutation: category=' + (mutation && mutation.category || '?') + ' risk=' + (mutation && mutation.risk_level || '?') + ' innovateMode=' + mutationInnovateMode + ' forceInnovation=' + forceInnovation + ' allowHighRisk=' + allowHighRisk);
-  verbose('Hub: hubHit=' + (hubHit && hubHit.hit ? 'true (score=' + hubHit.score + ' mode=' + hubHit.mode + ')' : 'false (' + (hubHit && hubHit.reason || 'unknown') + ')'));
-
-  // Memory Graph: record hypothesis bridging Signal -> Action. If this fails, refuse to evolve.
-  let hypothesisId = null;
-  try {
-    const hyp = recordHypothesis({
-      signals,
-      mutation,
-      personality_state: personalityState,
-      selectedGene,
-      selector,
-      driftEnabled: mutationInnovateMode,
-      selectedBy,
-      capsulesUsed,
-      observations,
-    });
-    hypothesisId = hyp && hyp.hypothesisId ? hyp.hypothesisId : null;
-  } catch (e) {
-    console.error(`[MemoryGraph] Hypothesis write failed: ${e.message}`);
-    console.error(`[MemoryGraph] Refusing to evolve without causal memory. Target: ${memoryGraphPath()}`);
-    throw new Error(`MemoryGraph Hypothesis write failed: ${e.message}`);
-  }
-
-  // Memory Graph: record the chosen causal path for this run. If this fails, refuse to output a mutation prompt.
-  try {
-    recordAttempt({
-      signals,
-      mutation,
-      personality_state: personalityState,
-      selectedGene,
-      selector,
-      driftEnabled: mutationInnovateMode,
-      selectedBy,
-      hypothesisId,
-      capsulesUsed,
-      observations,
-    });
-  } catch (e) {
-    console.error(`[MemoryGraph] Attempt write failed: ${e.message}`);
-    console.error(`[MemoryGraph] Refusing to evolve without causal memory. Target: ${memoryGraphPath()}`);
-    throw new Error(`MemoryGraph Attempt write failed: ${e.message}`);
-  }
+  const { selectedGene, capsuleCandidates, selector, selectedBy, selectedCapsuleId, strategyPolicy, personalitySelection, personalityState, mutation, forceInnovation } = ctx;
 
   // Solidify state: capture minimal, auditable context for post-patch validation + asset write.
   // This enforces strict protocol closure after patch application.
@@ -1622,11 +1327,11 @@ ${sharedKnowledgeContext}
 
 module.exports = {
   run,
-  computeAdaptiveStrategyPolicy,
-  shouldSkipHubCalls,
   verbose,
   // Delegate to canonical implementations in pipeline modules so tests and
   // production always exercise the same code path (fixes duplicate-copy drift).
+  computeAdaptiveStrategyPolicy: _select.computeAdaptiveStrategyPolicy,
+  shouldSkipHubCalls: _signals.shouldSkipHubCalls,
   determineBridgeEnabled: _guards.determineBridgeEnabled,
   detectCpuCount: _guards.detectCpuCount,
   getDefaultLoadMax: _guards.getDefaultLoadMax,
