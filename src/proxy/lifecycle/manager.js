@@ -166,6 +166,16 @@ class LifecycleManager {
       const secret = data?.payload?.node_secret || data?.node_secret || null;
       if (secret && /^[a-f0-9]{64}$/i.test(secret)) {
         this.store.setState('node_secret', secret);
+        // Hub just handed us a fresh secret. Whatever sits in
+        // A2A_NODE_SECRET is now older than the store, so suppress the
+        // env-wins reconciliation in _resolveNodeSecret for the rest of
+        // this process. Without this, the very next _buildHeaders call
+        // (e.g. the verification heartbeat in reAuthenticate) would see
+        // env vs store as a conflict, treat the env value as authoritative,
+        // and overwrite the freshly rotated secret with the stale one,
+        // re-creating the auth loop the previous patch fixed (see #529
+        // and the Bugbot review on PR #22).
+        this._suppressEnvSecret = true;
         this.logger.log('[lifecycle] new node_secret stored from hello response');
       }
 
@@ -228,7 +238,11 @@ class LifecycleManager {
         const hbResult = await this.heartbeat({ _skipReauth: true });
         if (hbResult.ok) {
           this.logger.log('[lifecycle] re-auth succeeded: heartbeat confirmed with new secret');
-          this._envOverrideLogged = false;
+          // Note: _envOverrideLogged is intentionally NOT reset here.
+          // The successful hello path above already set _suppressEnvSecret=true,
+          // which means _resolveNodeSecret will never hit the env-vs-store
+          // conflict branch again in this process, so the warning would never
+          // fire a second time anyway. Resetting the flag was misleading.
           return true;
         }
         this.logger.warn(`[lifecycle] re-auth attempt ${attempt}: heartbeat still failing after rotate`);

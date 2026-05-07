@@ -3,12 +3,16 @@
 // Regression coverage for EvoMap/evolver#529
 //   "Proxy: MailboxStore stale node_secret causes infinite auth failure loop"
 //
-// Two fixes are exercised here:
+// Three fixes are exercised here:
 //   1. nodeSecret getter reconciles A2A_NODE_SECRET env var with the
 //      MailboxStore: env wins on conflict and the store is rewritten so the
 //      stale value cannot bite again on the next call.
 //   2. reAuthenticate, when faced with node_id_already_claimed, drops the
 //      cached secret on the way to the second attempt instead of looping.
+//   3. After hello rotates the secret, _suppressEnvSecret flips so the next
+//      _resolveNodeSecret call (e.g. inside the verification heartbeat) does
+//      NOT undo the rotation by syncing the store back to the now-stale env
+//      value (Bugbot review on PR #22).
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -163,6 +167,62 @@ test('reAuthenticate: drops cached secret and retries unauthenticated when hub r
       store._inbound.some((e) => e?.payload?.action === 'manual_secret_reset_required'),
       'should emit manual_secret_reset_required system event'
     );
+  } finally {
+    if (original === undefined) delete process.env.A2A_NODE_SECRET;
+    else process.env.A2A_NODE_SECRET = original;
+    global.fetch = originalFetch;
+  }
+});
+
+test('reAuthenticate: env var does NOT undo a successful rotation during verification heartbeat (Bugbot #22)', async () => {
+  // Repro:
+  //   env A2A_NODE_SECRET = Y (valid, but stale per hub view)
+  //   store node_secret   = X (also stale; rewritten to Y by the env-wins path on first read)
+  //   hello rotate -> hub returns fresh Z and stores it
+  //   verification heartbeat MUST send Bearer Z, not Bearer Y. Without the
+  //   _suppressEnvSecret flip in hello, _resolveNodeSecret would see Z (store)
+  //   vs Y (env), env-wins, rewrite store back to Y, and sign the heartbeat
+  //   with the stale Y -> 403 -> infinite re-auth loop.
+  const VALID_HEX64_Y = 'c'.repeat(64);
+  const VALID_HEX64_X = 'd'.repeat(64);
+  const VALID_HEX64_Z = 'e'.repeat(64);
+  const original = process.env.A2A_NODE_SECRET;
+  const originalFetch = global.fetch;
+  try {
+    process.env.A2A_NODE_SECRET = VALID_HEX64_Y;
+    const store = makeStore({ node_id: 'node_test', node_secret: VALID_HEX64_X });
+
+    const seenAuthHeaders = [];
+    const mf = mockFetch((nthCall, opts) => {
+      seenAuthHeaders.push(opts?.headers ? opts.headers.Authorization : null);
+      if (nthCall === 1) {
+        return responseFromJson({
+          status: 200,
+          json: { payload: { status: 'acknowledged', node_secret: VALID_HEX64_Z, your_node_id: 'node_test' } },
+        });
+      }
+      return responseFromJson({ status: 200, json: { status: 'ok' } });
+    });
+    global.fetch = mf;
+
+    const mgr = new LifecycleManager({ hubUrl: 'https://example.test', store, logger: silentLogger() });
+    const result = await mgr.reAuthenticate();
+
+    assert.strictEqual(result, true, 're-auth must succeed');
+    assert.strictEqual(mf.calls.length, 2, 'expect hello + verification heartbeat');
+    assert.strictEqual(
+      store.getState('node_secret'),
+      VALID_HEX64_Z,
+      'rotated secret must remain in store after verification heartbeat'
+    );
+    assert.strictEqual(
+      seenAuthHeaders[1],
+      `Bearer ${VALID_HEX64_Z}`,
+      `verification heartbeat must use the freshly rotated secret, not the stale env var (got ${seenAuthHeaders[1]})`
+    );
+    assert.strictEqual(mgr._suppressEnvSecret, true, 'env var must be suppressed after a successful rotation');
+    // And subsequent reads should keep returning the rotated secret, not the env value.
+    assert.strictEqual(mgr.nodeSecret, VALID_HEX64_Z, 'subsequent nodeSecret reads must keep returning Z');
   } finally {
     if (original === undefined) delete process.env.A2A_NODE_SECRET;
     else process.env.A2A_NODE_SECRET = original;
