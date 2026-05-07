@@ -2,6 +2,39 @@
 
 All notable changes to `@evomap/evolver` are tracked here.
 
+## [1.80.1] - 2026-05-07
+
+### Fixed
+
+- **Validator: stop flooding the Hub with `env_fail` reports when the local
+  toolchain cannot run `node <script>` (issues #11, #15).** The validator
+  daemon now runs a one-shot preflight self-test on startup
+  (`runPreflight()` in `sandboxExecutor.js`) that writes a trivial script to
+  the sandbox and confirms `spawn('node', [...])` exits with code 0. If the
+  preflight fails (no `node` on PATH for headless invocations, missing exec
+  perm, unwritable TMPDIR, ...) the validator role is **skipped** instead of
+  posting `commands_passed=0, duration_ms=1` reports for every Hub-issued
+  task. A user-visible warning is printed once with the diagnostic stderr
+  tail so the operator can fix the host. Restart `evolver` after fixing PATH
+  to re-enable the validator role. Validator preflight result is exposed via
+  `getValidatorDaemonStats().preflight`.
+
+### Added
+
+- **Validator report diagnostics: per-command summaries + `failure_class`
+  on every `ValidationReport` (issues #11, #15).** Each report now carries
+  a top-level `failure_class` (one of `ok`, `parse_failed`,
+  `executable_not_allowed`, `sandbox_block_node_flag`, `spawn_failed`,
+  `timeout`, `exit_nonzero`, `unknown`) and a bounded `commands` array
+  (capped at 8 entries) where each entry has `cmd`, `ok`, `exit_code`,
+  `duration_ms`, `timed_out`, `failure_class`, and a 240-char `stderr_tail`.
+  This lets the Hub-side classifier distinguish "Gene shipped legacy
+  `node -e \"...\"` and the hardened sandbox rejected it" (a Hub/Gene
+  incompatibility, route via `sandbox_block_node_flag`) from "validator
+  host has no `node` binary" (genuine `env_fail`) instead of lumping both
+  together. Older Hubs that ignore unknown payload fields keep working
+  unchanged.
+
 ## [1.80.0] - 2026-05-07
 
 ### Added
