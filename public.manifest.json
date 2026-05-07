@@ -55,6 +55,9 @@
   },
   "obfuscate": [
     "src/evolve.js",
+    "src/evolve/guards.js",
+    "src/evolve/pipeline/collect.js",
+    "src/evolve/utils.js",
     "src/gep/selector.js",
     "src/gep/mutation.js",
     "src/gep/solidify.js",
