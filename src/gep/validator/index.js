@@ -195,7 +195,7 @@ async function runValidatorCycle(opts) {
   // cannot even run a trivial `node <script>` in the sandbox. Without this,
   // every validation task posted to this node returns duration_ms=1 /
   // commands_passed=0 and the Hub auto-quarantines the node for chronic
-  // env_fail (EvoMap/evolver-private-dev#15).
+  // env_fail.
   const pf = await _ensurePreflight();
   if (!pf.ok) {
     return { skipped: 'preflight_failed', reason: pf.reason || 'unknown' };

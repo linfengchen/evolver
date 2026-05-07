@@ -2,8 +2,8 @@
 //
 // Coverage for the diagnostic surface added to ValidationReport (failure_class
 // + per-command summaries) and the validator-host preflight gate. Both
-// changes are aimed at fixing the env_fail flood reported in
-// EvoMap/evolver-private-dev#11 and #15: the Hub could not tell apart
+// changes are aimed at fixing an env_fail flood where the Hub could not tell
+// apart:
 //   - "validator host has no `node` binary"   (genuine env_fail)
 //   - "Gene shipped legacy `node -e` cmd"     (Hub/Gene incompatibility)
 //   - "real assertion failed"                  (genuine fail)

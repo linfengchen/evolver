@@ -20,7 +20,7 @@ const REPORT_MAX_COMMANDS = 8;
 // Failure classes attached to each command result so the Hub can distinguish
 // "validator host is broken" (env_fail) from "Gene's validation cmd cannot
 // run in our hardened sandbox" (sandbox_block) from a real assertion failure
-// (exit_nonzero). Issue: EvoMap/evolver-private-dev#11, #15.
+// (exit_nonzero).
 const FAILURE_CLASS = {
   OK: 'ok',
   PARSE_FAILED: 'parse_failed',
