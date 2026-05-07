@@ -58,6 +58,8 @@
     "src/evolve/guards.js",
     "src/evolve/pipeline/collect.js",
     "src/evolve/pipeline/signals.js",
+    "src/evolve/pipeline/hub.js",
+    "src/evolve/pipeline/enrich.js",
     "src/evolve/pipeline/select.js",
     "src/evolve/pipeline/dispatch.js",
     "src/evolve/utils.js",
