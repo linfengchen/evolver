@@ -59,6 +59,7 @@
     "src/evolve/pipeline/collect.js",
     "src/evolve/pipeline/signals.js",
     "src/evolve/pipeline/select.js",
+    "src/evolve/pipeline/dispatch.js",
     "src/evolve/utils.js",
     "src/gep/selector.js",
     "src/gep/mutation.js",
