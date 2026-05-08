@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const paths = require('./paths');
 const learningSignals = require('./learningSignals');
+const { createGene } = require('./schemas/gene');
 
 const DISTILLER_MIN_CAPSULES = parseInt(process.env.DISTILLER_MIN_CAPSULES || '10', 10) || 10;
 const DISTILLER_INTERVAL_HOURS = parseInt(process.env.DISTILLER_INTERVAL_HOURS || '24', 10) || 24;
@@ -384,11 +385,18 @@ function validateSynthesizedGene(gene, existingGenes) {
   const errors = [];
   if (!gene || typeof gene !== 'object') return { valid: false, errors: ['gene is not an object'] };
 
+  // Validate structural fields on raw input BEFORE normalization so createGene()
+  // cannot silently mask a wrong type or missing category from the LLM output.
   if (gene.type !== 'Gene') errors.push('missing or wrong type (must be "Gene")');
   if (!gene.id || typeof gene.id !== 'string') errors.push('missing id');
   if (!gene.category) errors.push('missing category');
   if (!Array.isArray(gene.signals_match) || gene.signals_match.length === 0) errors.push('missing or empty signals_match');
   if (!Array.isArray(gene.strategy) || gene.strategy.length === 0) errors.push('missing or empty strategy');
+
+  if (errors.length > 0) return { valid: false, errors };
+
+  // Normalize array/object fields via factory now that structural checks passed
+  gene = createGene(gene);
 
   // --- Signals sanitization (BEFORE id derivation so deriveDescriptiveId uses clean signals) ---
   if (Array.isArray(gene.signals_match)) {
@@ -439,14 +447,11 @@ function validateSynthesizedGene(gene, existingGenes) {
   }
 
   // --- Constraints ---
-  if (!gene.constraints || typeof gene.constraints !== 'object') gene.constraints = {};
-  if (!Array.isArray(gene.constraints.forbidden_paths) || gene.constraints.forbidden_paths.length === 0) {
-    gene.constraints.forbidden_paths = ['.git', 'node_modules'];
-  }
+  // createGene() already ensures constraints, forbidden_paths, and max_files defaults.
   if (!gene.constraints.forbidden_paths.some(function (p) { return p === '.git' || p === 'node_modules'; })) {
     errors.push('constraints.forbidden_paths must include .git or node_modules');
   }
-  if (!gene.constraints.max_files || gene.constraints.max_files > DISTILLED_MAX_FILES) {
+  if (gene.constraints.max_files > DISTILLED_MAX_FILES) {
     gene.constraints.max_files = DISTILLED_MAX_FILES;
   }
 

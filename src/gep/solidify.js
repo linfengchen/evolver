@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { createGene } = require('./schemas/gene');
 const { loadGenes, upsertGene, appendEventJsonl, appendCapsule, upsertCapsule, getLastEventId, appendFailedCapsule } = require('./assetStore');
 const { computeSignalKey, memoryGraphPath } = require('./memoryGraph');
 const { computeCapsuleSuccessStreak, isBlastRadiusSafe } = require('./a2a');
@@ -368,8 +369,7 @@ function buildAutoGene({ signals, intent }) {
     ? String(intent)
     : inferCategoryFromSignals(sigs);
   const signalsMatch = sigs.length ? sigs.slice(0, 8) : ['(none)'];
-  const gene = {
-    type: 'Gene',
+  const gene = createGene({
     schema_version: SCHEMA_VERSION,
     id,
     category,
@@ -397,8 +397,7 @@ function buildAutoGene({ signals, intent }) {
       'node scripts/validate-modules.js ./src/gep/solidify ./src/gep/policyCheck ./src/gep/assetStore',
       'node scripts/validate-suite.js',
     ],
-    epigenetic_marks: [], // Epigenetic marks: environment-specific expression modifiers
-  };
+  });
   gene.asset_id = computeAssetId(gene);
   return gene;
 }
@@ -1180,13 +1179,12 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
           if (geneUsed && geneUsed.type === 'Gene' && geneUsed.id) {
             publishGene = sanitizePayload(geneUsed);
           } else {
-            publishGene = {
-              type: 'Gene',
+            publishGene = createGene({
               id: capsule.gene || ('gene_auto_' + (capsule.id || Date.now())),
               category: event && event.intent ? event.intent : 'repair',
               signals_match: Array.isArray(capsule.trigger) ? capsule.trigger : [],
               summary: capsule.summary || '',
-            };
+            });
           }
           const parentRef = reusedAssetId && sourceType === 'reference' && String(reusedAssetId).startsWith('sha256:')
             ? reusedAssetId : null;
@@ -1298,7 +1296,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         }
         const apGene = geneUsed && geneUsed.type === 'Gene' && geneUsed.id
           ? sanitizeAp(geneUsed)
-          : { type: 'Gene', id: 'gene_unknown_' + Date.now(), category: derivedIntent, signals_match: signals.slice(0, 8), summary: 'Failed evolution gene' };
+          : createGene({ id: 'gene_unknown_' + Date.now(), category: derivedIntent, signals_match: signals.slice(0, 8), summary: 'Failed evolution gene' });
         apGene.anti_pattern = true;
         apGene.failure_reason = buildFailureReason(constraintCheck, validation, protocolViolations, canary);
         apGene.asset_id = computeAssetId(apGene);

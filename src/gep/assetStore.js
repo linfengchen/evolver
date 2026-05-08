@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { getGepAssetsDir } = require('./paths');
 const { computeAssetId, SCHEMA_VERSION } = require('./contentHash');
+const { createGene } = require('./schemas/gene');
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -207,7 +208,7 @@ function loadGenes() {
         if (line.trim()) {
           try {
             const parsed = JSON.parse(line);
-            if (parsed && parsed.type === 'Gene') jsonlGenes.push(parsed);
+            if (parsed && parsed.type === 'Gene') jsonlGenes.push(createGene(parsed));
           } catch(e) {}
         }
       });
@@ -216,8 +217,8 @@ function loadGenes() {
     console.warn('[AssetStore] Failed to read genes.jsonl:', e && e.message || e);
   }
 
-  // Combine and deduplicate by ID (JSONL takes precedence if newer, but here we just merge)
-  const combined = [...jsonGenes, ...jsonlGenes];
+  // Combine, normalize via createGene, and deduplicate by ID (JSONL takes precedence)
+  const combined = [...jsonGenes.map(createGene), ...jsonlGenes];
   const unique = new Map();
   combined.forEach(g => {
     if (g && g.id) unique.set(String(g.id), g);
