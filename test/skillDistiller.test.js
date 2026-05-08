@@ -152,7 +152,7 @@ describe('validateSynthesizedGene', () => {
 
   it('auto-prefixes id if missing distilled prefix', () => {
     var gene = {
-      type: 'Gene', id: 'gene_test_auto', category: 'opt',
+      type: 'Gene', id: 'gene_test_auto', category: 'optimize',
       signals_match: ['optimize'], strategy: ['do stuff'],
       constraints: { forbidden_paths: ['.git'] },
     };
@@ -162,7 +162,7 @@ describe('validateSynthesizedGene', () => {
 
   it('caps max_files to DISTILLED_MAX_FILES', () => {
     var gene = {
-      type: 'Gene', id: 'gene_distilled_big', category: 'opt',
+      type: 'Gene', id: 'gene_distilled_big', category: 'optimize',
       signals_match: ['x'], strategy: ['y'],
       constraints: { max_files: 50, forbidden_paths: ['.git', 'node_modules'] },
     };
@@ -178,10 +178,24 @@ describe('validateSynthesizedGene', () => {
   });
 
   it('rejects gene without signals_match', () => {
-    var gene = { type: 'Gene', id: 'gene_distilled_nosig', category: 'x', strategy: ['do'] };
+    var gene = { type: 'Gene', id: 'gene_distilled_nosig', category: 'repair', strategy: ['do'] };
     var result = validateSynthesizedGene(gene, []);
     assert.ok(!result.valid);
     assert.ok(result.errors.some(function (e) { return e.includes('signals_match'); }));
+  });
+
+  // Bugbot follow-up on PR #25: a truthy-but-invalid category from the LLM
+  // (e.g. 'deploy') used to slip past the pre-check and get silently coerced
+  // to 'innovate' by createGene. Validation must surface it as an error.
+  it('rejects gene with truthy but invalid category', () => {
+    var gene = {
+      type: 'Gene', id: 'gene_distilled_badcat', category: 'deploy',
+      signals_match: ['error'], strategy: ['fix it'],
+    };
+    var result = validateSynthesizedGene(gene, []);
+    assert.ok(!result.valid, 'expected invalid result, got: ' + JSON.stringify(result));
+    assert.ok(result.errors.some(function (e) { return e.includes('invalid category') && e.includes('deploy'); }),
+      'expected invalid-category error, got: ' + result.errors.join(', '));
   });
 
   it('detects full overlap with existing gene', () => {
@@ -199,7 +213,7 @@ describe('validateSynthesizedGene', () => {
   it('deduplicates id if conflict with existing gene', () => {
     var existing = [{ id: 'gene_distilled_conflict', signals_match: ['other'] }];
     var gene = {
-      type: 'Gene', id: 'gene_distilled_conflict', category: 'opt',
+      type: 'Gene', id: 'gene_distilled_conflict', category: 'optimize',
       signals_match: ['different'], strategy: ['do'],
       constraints: { forbidden_paths: ['.git', 'node_modules'] },
     };
@@ -213,7 +227,7 @@ describe('validateSynthesizedGene', () => {
     // prefixes -- both are arbitrary-code-execution-by-design. Only `node`
     // survives the filter.
     var gene = {
-      type: 'Gene', id: 'gene_distilled_unsafe', category: 'opt',
+      type: 'Gene', id: 'gene_distilled_unsafe', category: 'optimize',
       signals_match: ['x'], strategy: ['do'],
       constraints: { forbidden_paths: ['.git', 'node_modules'] },
       validation: ['node test.js', 'rm -rf /', 'echo $(whoami)', 'npm test'],
@@ -224,7 +238,7 @@ describe('validateSynthesizedGene', () => {
 
   it('strips node -e and node --eval commands (consistent with policyCheck)', () => {
     var gene = {
-      type: 'Gene', id: 'gene_distilled_eval_block', category: 'opt',
+      type: 'Gene', id: 'gene_distilled_eval_block', category: 'optimize',
       signals_match: ['test_signal'], strategy: ['step one', 'step two', 'step three'],
       constraints: { forbidden_paths: ['.git', 'node_modules'] },
       validation: [

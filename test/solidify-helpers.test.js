@@ -14,7 +14,7 @@ const {
   BLAST_RADIUS_HARD_CAP_FILES,
   BLAST_RADIUS_HARD_CAP_LINES,
 } = require('../src/gep/policyCheck');
-const { computeProcessScores } = require('../src/gep/solidify');
+const { computeProcessScores, _pickGeneCategory } = require('../src/gep/solidify');
 const { normalizeRelPath, isCriticalProtectedPath } = require('../src/gep/gitOps');
 
 describe('normalizeRelPath', () => {
@@ -409,5 +409,39 @@ describe('checkConstraints hollow commit guard', () => {
     const blast = { files: 0, lines: 0, changed_files: [], all_changed_files: [] };
     const result = checkConstraints({ gene: baseGene, blast, blastRadiusEstimate: null, repoRoot: null });
     assert.ok(!result.violations.some(v => v.startsWith('hollow_commit')));
+  });
+});
+
+// Bugbot follow-up on PR #25: Gene category passed to createGene was being
+// silently coerced to 'innovate' when the caller's intent was truthy but not
+// in VALID_CATEGORIES (e.g. 'fix', 'deploy'), bypassing the explicit
+// per-call-site fallback ('repair'). _pickGeneCategory is the helper that
+// guards createGene call sites in solidify.js against that coercion.
+describe('_pickGeneCategory', () => {
+  it('returns the intent when it is in VALID_CATEGORIES', () => {
+    assert.equal(_pickGeneCategory('repair', 'optimize'), 'repair');
+    assert.equal(_pickGeneCategory('innovate', 'repair'), 'innovate');
+    assert.equal(_pickGeneCategory('explore', 'repair'), 'explore');
+  });
+
+  it('falls back when intent is truthy but not a valid category (e.g. "fix")', () => {
+    assert.equal(_pickGeneCategory('fix', 'repair'), 'repair');
+    assert.equal(_pickGeneCategory('deploy', 'optimize'), 'optimize');
+  });
+
+  it('falls back when intent is falsy', () => {
+    assert.equal(_pickGeneCategory(null, 'repair'), 'repair');
+    assert.equal(_pickGeneCategory(undefined, 'innovate'), 'innovate');
+    assert.equal(_pickGeneCategory('', 'optimize'), 'optimize');
+  });
+
+  it('falls back when intent is not a string', () => {
+    assert.equal(_pickGeneCategory(123, 'repair'), 'repair');
+    assert.equal(_pickGeneCategory({}, 'repair'), 'repair');
+  });
+
+  it('uses safe default when fallback itself is invalid', () => {
+    assert.equal(_pickGeneCategory('fix', 'not-a-category'), 'repair');
+    assert.equal(_pickGeneCategory(null, undefined), 'repair');
   });
 });

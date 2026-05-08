@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const paths = require('./paths');
 const learningSignals = require('./learningSignals');
-const { createGene } = require('./schemas/gene');
+const { createGene, VALID_CATEGORIES } = require('./schemas/gene');
 
 const DISTILLER_MIN_CAPSULES = parseInt(process.env.DISTILLER_MIN_CAPSULES || '10', 10) || 10;
 const DISTILLER_INTERVAL_HOURS = parseInt(process.env.DISTILLER_INTERVAL_HOURS || '24', 10) || 24;
@@ -386,10 +386,16 @@ function validateSynthesizedGene(gene, existingGenes) {
   if (!gene || typeof gene !== 'object') return { valid: false, errors: ['gene is not an object'] };
 
   // Validate structural fields on raw input BEFORE normalization so createGene()
-  // cannot silently mask a wrong type or missing category from the LLM output.
+  // cannot silently mask a wrong type or invalid category from the LLM output.
+  // (Bugbot follow-up on #25: a truthy-only check let invalid values like
+  // 'deploy' slip through and get silently coerced to 'innovate'.)
   if (gene.type !== 'Gene') errors.push('missing or wrong type (must be "Gene")');
   if (!gene.id || typeof gene.id !== 'string') errors.push('missing id');
-  if (!gene.category) errors.push('missing category');
+  if (!gene.category) {
+    errors.push('missing category');
+  } else if (!VALID_CATEGORIES.includes(gene.category)) {
+    errors.push(`invalid category '${gene.category}' (must be one of: ${VALID_CATEGORIES.join(', ')})`);
+  }
   if (!Array.isArray(gene.signals_match) || gene.signals_match.length === 0) errors.push('missing or empty signals_match');
   if (!Array.isArray(gene.strategy) || gene.strategy.length === 0) errors.push('missing or empty strategy');
 

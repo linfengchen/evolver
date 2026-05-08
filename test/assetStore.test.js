@@ -152,6 +152,38 @@ describe('loadGenes', () => {
     assert.ok(geneA);
     assert.equal(geneA.category, 'optimize');
   });
+
+  // Bugbot follow-up on PR #25: loadGenes used to pass loaded genes through
+  // createGene(), which synthesized default fields (epigenetic_marks,
+  // learning_history, anti_patterns, summary, schema_version) on legacy genes
+  // that were stored before those fields existed. Since computeAssetId hashes
+  // every field except asset_id, those phantom additions invalidated the
+  // stored asset_id and broke content-addressable integrity.
+  it('preserves on-disk gene shape (does not synthesize default fields that would invalidate asset_id)', () => {
+    const { genesPath, loadGenes } = freshRequire();
+    const { computeAssetId, verifyAssetId } = require('../src/gep/contentHash');
+
+    // A "legacy" gene with the minimal field set as it existed pre-#25.
+    const legacyGene = {
+      type: 'Gene',
+      id: 'gene_legacy',
+      category: 'repair',
+      signals_match: ['error'],
+      strategy: ['fix it'],
+    };
+    legacyGene.asset_id = computeAssetId(legacyGene);
+
+    fs.writeFileSync(genesPath(), JSON.stringify({ version: 1, genes: [legacyGene] }), 'utf8');
+
+    const loaded = loadGenes().find(g => g.id === 'gene_legacy');
+    assert.ok(loaded, 'gene_legacy should be loaded');
+    assert.ok(verifyAssetId(loaded), 'loaded gene asset_id must still verify');
+    assert.equal(loaded.epigenetic_marks, undefined, 'must not synthesize epigenetic_marks');
+    assert.equal(loaded.learning_history, undefined, 'must not synthesize learning_history');
+    assert.equal(loaded.anti_patterns, undefined, 'must not synthesize anti_patterns');
+    assert.equal(loaded.schema_version, undefined, 'must not synthesize schema_version');
+    assert.equal(loaded.summary, undefined, 'must not synthesize summary');
+  });
 });
 
 describe('readAllEvents', () => {

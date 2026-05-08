@@ -1,7 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { createGene } = require('./schemas/gene');
+const { createGene, VALID_CATEGORIES } = require('./schemas/gene');
+
+// Pick a valid Gene category, falling back when the caller-supplied intent is
+// missing or not in the canonical whitelist. Without this guard, createGene()
+// silently coerces any unrecognized intent (e.g. 'fix', 'deploy') to its own
+// default 'innovate', which destroys the caller's intended fallback semantics.
+// (Bugbot follow-up on PR #25.)
+function _pickGeneCategory(intent, fallback) {
+  const fb = VALID_CATEGORIES.includes(fallback) ? fallback : 'repair';
+  if (intent && typeof intent === 'string' && VALID_CATEGORIES.includes(intent)) {
+    return intent;
+  }
+  return fb;
+}
 const { loadGenes, upsertGene, appendEventJsonl, appendCapsule, upsertCapsule, getLastEventId, appendFailedCapsule } = require('./assetStore');
 const { computeSignalKey, memoryGraphPath } = require('./memoryGraph');
 const { computeCapsuleSuccessStreak, isBlastRadiusSafe } = require('./a2a');
@@ -365,7 +378,10 @@ function buildAutoGene({ signals, intent }) {
   const sigs = Array.isArray(signals) ? Array.from(new Set(signals.map(String))).filter(Boolean) : [];
   const signalKey = computeSignalKey(sigs);
   const id = `gene_auto_${stableHash(signalKey)}`;
-  const category = intent && ['repair', 'optimize', 'innovate'].includes(String(intent))
+  // Intent must be in the canonical VALID_CATEGORIES whitelist; otherwise fall
+  // back to a signals-based inference. Hardcoding the list inline used to drop
+  // 'explore' silently — keep this in sync with schemas/gene.js.
+  const category = intent && VALID_CATEGORIES.includes(String(intent))
     ? String(intent)
     : inferCategoryFromSignals(sigs);
   const signalsMatch = sigs.length ? sigs.slice(0, 8) : ['(none)'];
@@ -1181,7 +1197,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
           } else {
             publishGene = createGene({
               id: capsule.gene || ('gene_auto_' + (capsule.id || Date.now())),
-              category: event && event.intent ? event.intent : 'repair',
+              category: _pickGeneCategory(event && event.intent, 'repair'),
               signals_match: Array.isArray(capsule.trigger) ? capsule.trigger : [],
               summary: capsule.summary || '',
             });
@@ -1296,7 +1312,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         }
         const apGene = geneUsed && geneUsed.type === 'Gene' && geneUsed.id
           ? sanitizeAp(geneUsed)
-          : createGene({ id: 'gene_unknown_' + Date.now(), category: derivedIntent, signals_match: signals.slice(0, 8), summary: 'Failed evolution gene' });
+          : createGene({ id: 'gene_unknown_' + Date.now(), category: _pickGeneCategory(derivedIntent, 'repair'), signals_match: signals.slice(0, 8), summary: 'Failed evolution gene' });
         apGene.anti_pattern = true;
         apGene.failure_reason = buildFailureReason(constraintCheck, validation, protocolViolations, canary);
         apGene.asset_id = computeAssetId(apGene);
@@ -1546,4 +1562,5 @@ module.exports = {
   buildCapsuleTraceSteps,
   BLAST_RADIUS_HARD_CAP_FILES,
   BLAST_RADIUS_HARD_CAP_LINES,
+  _pickGeneCategory,
 };

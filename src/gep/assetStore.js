@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { getGepAssetsDir } = require('./paths');
 const { computeAssetId, SCHEMA_VERSION } = require('./contentHash');
-const { createGene } = require('./schemas/gene');
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -208,7 +207,7 @@ function loadGenes() {
         if (line.trim()) {
           try {
             const parsed = JSON.parse(line);
-            if (parsed && parsed.type === 'Gene') jsonlGenes.push(createGene(parsed));
+            if (parsed && parsed.type === 'Gene') jsonlGenes.push(parsed);
           } catch(e) {}
         }
       });
@@ -217,8 +216,15 @@ function loadGenes() {
     console.warn('[AssetStore] Failed to read genes.jsonl:', e && e.message || e);
   }
 
-  // Combine, normalize via createGene, and deduplicate by ID (JSONL takes precedence)
-  const combined = [...jsonGenes.map(createGene), ...jsonlGenes];
+  // Combine and deduplicate by ID (JSONL takes precedence). Do NOT pass loaded
+  // genes through createGene() — that would synthesize default fields
+  // (epigenetic_marks, learning_history, anti_patterns, summary,
+  // schema_version) on legacy genes that pre-date those fields, which would
+  // change their content hash and invalidate any previously-computed
+  // asset_id. Read paths must preserve on-disk gene shapes byte-for-byte;
+  // callers that need normalized fields should call createGene() explicitly
+  // (and write back via upsertGene which recomputes asset_id).
+  const combined = [...jsonGenes, ...jsonlGenes];
   const unique = new Map();
   combined.forEach(g => {
     if (g && g.id) unique.set(String(g.id), g);
