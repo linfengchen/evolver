@@ -349,6 +349,16 @@ describe('buildDistillationPrompt', () => {
     assert.ok(prompt.includes('Gene synthesis engine'));
     assert.ok(prompt.includes('forbidden_paths'));
   });
+
+  it('does not mention npm or npx as allowed validation prefixes', () => {
+    var analysis = { high_frequency: [], strategy_drift: [], coverage_gaps: [] };
+    var genes = [];
+    var caps = [makeCapsule('c1', 'gene_a', 'success', 0.9)];
+    var prompt = buildDistillationPrompt(analysis, genes, caps);
+    assert.ok(!prompt.includes('"npm "'), 'prompt must not suggest npm as valid prefix');
+    assert.ok(!prompt.includes('"npx "'), 'prompt must not suggest npx as valid prefix');
+    assert.ok(prompt.includes('"node "'), 'prompt must still require node prefix');
+  });
 });
 
 describe('shouldDistill', () => {

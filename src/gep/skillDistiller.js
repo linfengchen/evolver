@@ -288,9 +288,9 @@ function buildDistillationPrompt(analysis, existingGenes, sampleCapsules) {
     '',
     '## VALIDATION',
     '',
-    '- Validation commands MUST start with "node ", "npm ", or "npx " (security constraint).',
+    '- Validation commands MUST start with "node " (security constraint). npm and npx are not allowed.',
     '- Include commands that actually verify the Gene was applied correctly.',
-    '- Good: "npx tsc --noEmit", "npm test"',
+    '- Good: "node --test test/*.test.js", "node scripts/validate.js"',
     '- Bad: "node -v" (proves nothing about the Gene)',
     '',
     '## QUALITY BAR',
@@ -312,7 +312,7 @@ function buildDistillationPrompt(analysis, existingGenes, sampleCapsules) {
     JSON.stringify(analysis, null, 2),
     '',
     'Output a single Gene JSON object with these fields:',
-    '{ "type": "Gene", "id": "gene_distilled_<descriptive-kebab-name>", "summary": "<clear marketplace-quality description>", "category": "repair|optimize|innovate", "signals_match": ["generic_signal_1", ...], "preconditions": ["Concrete condition 1", ...], "strategy": ["Step 1: verb ...", "Step 2: verb ...", ...], "constraints": { "max_files": N, "forbidden_paths": [".git", "node_modules", ...] }, "validation": ["npx tsc --noEmit", ...], "schema_version": "1.6.0" }',
+    '{ "type": "Gene", "id": "gene_distilled_<descriptive-kebab-name>", "summary": "<clear marketplace-quality description>", "category": "repair|optimize|innovate", "signals_match": ["generic_signal_1", ...], "preconditions": ["Concrete condition 1", ...], "strategy": ["Step 1: verb ...", "Step 2: verb ...", ...], "constraints": { "max_files": N, "forbidden_paths": [".git", "node_modules", ...] }, "validation": ["node --test test/*.test.js", ...], "schema_version": "1.6.0" }',
   ].join('\n');
 }
 
@@ -1031,7 +1031,7 @@ function buildFailureDistillationPrompt(analysis, existingGenes, sampleCapsules)
     '',
     '## VALIDATION',
     '',
-    '- Validation commands MUST start with "node ", "npm ", or "npx " (security constraint).',
+    '- Validation commands MUST start with "node " (security constraint). npm and npx are not allowed.',
     '',
     '---',
     '',
@@ -1045,7 +1045,7 @@ function buildFailureDistillationPrompt(analysis, existingGenes, sampleCapsules)
     JSON.stringify(genesRef, null, 2),
     '',
     'Output a single Gene JSON object:',
-    '{ "type": "Gene", "id": "' + REPAIR_DISTILLED_ID_PREFIX + '<descriptive-kebab-name>", "summary": "<defensive description>", "category": "repair", "signals_match": ["signal_1", ...], "preconditions": ["condition 1", ...], "strategy": ["Step 1: guard ...", "Step 2: verify ...", ...], "constraints": { "max_files": N, "forbidden_paths": [".git", "node_modules", ...] }, "validation": ["npx tsc --noEmit", ...], "schema_version": "1.6.0" }',
+    '{ "type": "Gene", "id": "' + REPAIR_DISTILLED_ID_PREFIX + '<descriptive-kebab-name>", "summary": "<defensive description>", "category": "repair", "signals_match": ["signal_1", ...], "preconditions": ["condition 1", ...], "strategy": ["Step 1: guard ...", "Step 2: verify ...", ...], "constraints": { "max_files": N, "forbidden_paths": [".git", "node_modules", ...] }, "validation": ["node --test test/*.test.js", ...], "schema_version": "1.6.0" }',
   ].join('\n');
 }
 
