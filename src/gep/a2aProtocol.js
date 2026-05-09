@@ -23,6 +23,21 @@ const { computeAssetId } = require('./contentHash');
 const { captureEnvFingerprint } = require('./envFingerprint');
 const os = require('os');
 const { getDeviceId } = require('./deviceId');
+const { validateGene } = require('./schemas/gene');
+const { validateCapsule } = require('./schemas/capsule');
+
+// Run schema validators on assets before broadcasting them. Warn-only by
+// design: the hub re-validates server-side and we'd rather see a malformed
+// asset reach the hub (where it gets logged with full context) than have a
+// silent local crash that causes the publish loop to fall behind. See
+// issue #30 (H1).
+function _publishValidateWarn(label, validatorFn, obj) {
+  try {
+    validatorFn(obj);
+  } catch (e) {
+    console.warn('[a2aProtocol] ' + label + ' schema validation warning before publish: ' + (e && e.message || e));
+  }
+}
 
 const PROTOCOL_NAME = 'gep-a2a';
 const PROTOCOL_VERSION = '1.0.0';
@@ -171,6 +186,8 @@ function buildPublish(opts) {
       // non-fatal; hub has a backfill path.
     }
   }
+  if (asset.type === 'Gene')         _publishValidateWarn('Gene', validateGene, asset);
+  else if (asset.type === 'Capsule') _publishValidateWarn('Capsule', validateCapsule, asset);
   const assetIdVal = asset.asset_id || computeAssetId(asset);
   const nodeSecret = getHubNodeSecret();
   if (!nodeSecret) {
@@ -203,6 +220,9 @@ function buildPublishBundle(opts) {
   if (!capsule || capsule.type !== 'Capsule' || !capsule.id) {
     throw new Error('publishBundle: capsule must be a valid Capsule with type and id');
   }
+  // Deep schema validation (warn-only).
+  _publishValidateWarn('Gene', validateGene, gene);
+  _publishValidateWarn('Capsule', validateCapsule, capsule);
   if (o.modelName && typeof o.modelName === 'string') {
     gene.model_name = o.modelName;
     capsule.model_name = o.modelName;

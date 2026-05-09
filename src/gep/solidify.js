@@ -1035,7 +1035,12 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         outcomeStatus,
       }),
     });
-    capsule.asset_id = computeAssetId(capsule);
+    // asset_id is intentionally NOT computed here.
+    // It is computed once at the end of solidify(), after success_streak and
+    // a2a.eligible_to_broadcast are finalized. Computing it twice would
+    // produce a stale asset_id that gets written to disk before being
+    // overwritten -- and could leak to the hub if a fetch races the second
+    // upsertCapsule. See issue #30 (H5).
   }
 
   // Capture failed mutation as a FailedCapsule before rollback destroys the diff.
@@ -1096,9 +1101,10 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
 
   if (!dryRun) {
     appendEventJsonl(validationReport);
-    if (capsule) upsertCapsule(capsule);
     appendEventJsonl(event);
     if (capsule) {
+      // computeCapsuleSuccessStreak reads events.jsonl, so it must run AFTER
+      // appendEventJsonl(event) above so the freshly-appended success counts.
       const streak = computeCapsuleSuccessStreak({ capsuleId: capsule.id });
       capsule.success_streak = streak || 1;
       capsule.a2a = {
@@ -1107,6 +1113,9 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
           (capsule.outcome.score || 0) >= require('../config').BROADCAST_SCORE_THRESHOLD &&
           (capsule.success_streak || 0) >= require('../config').BROADCAST_SUCCESS_STREAK,
       };
+      // Single asset_id computation after all fields are finalized.
+      // upsertCapsule is called once -- the previous version called it twice
+      // with a stale asset_id on the first write, see issue #30 (H5).
       capsule.asset_id = computeAssetId(capsule);
       upsertCapsule(capsule);
     }
