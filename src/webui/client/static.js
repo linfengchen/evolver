@@ -50,12 +50,17 @@ function getIndexHtml() {
     </section>
 
     <section data-view="pipelines" class="view">
+      <div class="panel" style="margin-bottom: 16px;">
+        <h2>Validation Score Trend</h2>
+        <p class="muted small" style="margin:-8px 0 8px 0">Local validation outcome score per run (0.0 – 1.0). Higher = more stable + better heuristic delta + better predictive match.</p>
+        <div id="scoreTrendChart" class="chart-container" style="height: 220px;"></div>
+      </div>
       <div class="grid-bottom">
         <div class="panel">
           <h2>Pipeline Runs</h2>
           <div class="table-wrapper">
             <table id="runsTable">
-              <thead><tr><th>Run ID</th><th>Status</th><th>Gene</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Run ID</th><th>Status</th><th>Gene</th><th>Score</th><th>Updated</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -310,7 +315,8 @@ function renderRuns(result) {
   const runs = result.data || [];
   const tbody = document.querySelector('#runsTable tbody');
   if (!runs.length) {
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No runs recorded yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No runs recorded yet.</td></tr>';
+    renderScoreTrend([]);
     return;
   }
   tbody.innerHTML = runs.map((run) =>
@@ -318,11 +324,128 @@ function renderRuns(result) {
     '<td><strong>' + esc(run.runId) + '</strong></td>' +
     '<td><span class="status-indicator ' + getStatusClass(run.status) + '"></span>' + esc(run.status) + '</td>' +
     '<td>' + esc(run.selectedGeneId || '-') + '</td>' +
+    '<td>' + scoreBar(run.score) + '</td>' +
     '<td>' + esc(formatTime(run.updatedAt)) + '</td>' +
     '</tr>'
   ).join('');
   document.querySelectorAll('#runsTable tbody tr[data-run]').forEach((tr) => {
     tr.addEventListener('click', () => loadRun(tr.getAttribute('data-run')));
+  });
+  renderScoreTrend(runs);
+}
+
+const VALIDATION_DIMENSION_LABELS = {
+  stable_no_error: 'Stable (no errors)',
+  heuristic_delta: 'Heuristic delta',
+  predictive: 'Predictive match',
+  failed: 'Failed',
+  unstable: 'Unstable',
+};
+
+function renderValidationBlock(validation, runStatus) {
+  if (!validation) {
+    const hint = runStatus === 'review_pending'
+      ? 'Run is awaiting review confirmation — local validation has not run yet.'
+      : runStatus === 'running' || runStatus === 'pending'
+        ? 'Validation will appear here once the solidify phase emits an outcome event.'
+        : 'No validation outcome recorded for this run.';
+    return '<div class="detail-block"><h4>Validation result</h4><p class="muted small">' + esc(hint) + '</p></div>';
+  }
+  const score = typeof validation.score === 'number' ? validation.score : null;
+  const statusCls = validation.status === 'success' ? 'success' : validation.status === 'failed' ? 'failed' : 'unknown';
+  const scoreColor = score === null ? '#888' : score >= 0.7 ? '#28a745' : score >= 0.5 ? '#ffc107' : '#dc3545';
+  const dims = (validation.dimensions || []).map((d) =>
+    '<span class="pill validation-dim">' + esc(VALIDATION_DIMENSION_LABELS[d] || d) + '</span>'
+  ).join('') || '<span class="muted small">no dimensions recorded</span>';
+
+  let html = '<div class="detail-block validation-block"><h4>Validation result</h4>';
+  html += '<div class="validation-summary">' +
+    '<div class="validation-status"><span class="status-indicator ' + statusCls + '"></span>' +
+      '<strong>' + esc(validation.status || 'unknown') + '</strong>' +
+    '</div>';
+  if (score !== null) {
+    html += '<div class="validation-score-wrap">' +
+      '<div class="validation-score-label">Score</div>' +
+      '<div class="score-bar score-bar-lg">' +
+        '<div class="score-bar-fill" style="width:' + (score * 100).toFixed(0) + '%;background:' + scoreColor + '"></div>' +
+        '<span class="score-bar-text">' + (score * 100).toFixed(1) + '%</span>' +
+      '</div></div>';
+  }
+  html += '</div>';
+  html += '<div class="validation-dims"><span class="muted small">Dimensions:</span> ' + dims + '</div>';
+  if (validation.observedSignals && validation.observedSignals.length) {
+    html += '<div class="validation-observed"><span class="muted small">Observed signals after run:</span> ' +
+      pillList(validation.observedSignals, 'signal') + '</div>';
+  }
+  if (validation.predictive) {
+    const entries = Object.entries(validation.predictive).slice(0, 6);
+    html += '<details class="validation-predictive"><summary>Predictive measurements</summary>' + kv(entries) + '</details>';
+  }
+  if (validation.timestamp) {
+    html += '<p class="muted small" style="margin-top:8px">Validated at ' + esc(formatTime(validation.timestamp)) + '</p>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function scoreBar(score) {
+  if (typeof score !== 'number') return '<span class="muted small">—</span>';
+  const pct = Math.round(score * 100);
+  const color = score >= 0.7 ? '#28a745' : score >= 0.5 ? '#ffc107' : '#dc3545';
+  return '<div class="score-bar" title="' + score.toFixed(3) + '">' +
+    '<div class="score-bar-fill" style="width:' + pct + '%;background:' + color + '"></div>' +
+    '<span class="score-bar-text">' + pct + '%</span></div>';
+}
+
+function renderScoreTrend(runs) {
+  const el = document.getElementById('scoreTrendChart');
+  if (!el) return;
+  const scored = runs.filter((r) => typeof r.score === 'number')
+    .sort((a, b) => new Date(a.finishedAt || a.updatedAt) - new Date(b.finishedAt || b.updatedAt));
+  if (!scored.length) {
+    el.innerHTML = '<p class="muted small" style="padding:24px 0;text-align:center">No scored runs yet — runs only get a score after solidify produces an outcome event.</p>';
+    return;
+  }
+  const chart = echarts.init(el);
+  const textColor = chartTextColor();
+  chart.setOption({
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = params[0];
+        const r = scored[p.dataIndex];
+        return '<strong>' + r.runId + '</strong><br/>' +
+          'Gene: ' + (r.selectedGeneId || '-') + '<br/>' +
+          'Score: <strong>' + (r.score || 0).toFixed(3) + '</strong><br/>' +
+          formatTime(r.finishedAt || r.updatedAt);
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: scored.map((r) => r.runId.slice(-8)),
+      axisLabel: { color: textColor, fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value',
+      min: 0, max: 1,
+      axisLabel: { color: textColor, formatter: (v) => (v * 100).toFixed(0) + '%' },
+      splitLine: { lineStyle: { color: isDarkMode() ? '#2a3038' : '#e9ecef' } },
+    },
+    series: [{
+      type: 'line',
+      smooth: true,
+      data: scored.map((r) => r.score),
+      areaStyle: { opacity: 0.2 },
+      lineStyle: { width: 2, color: '#3274d9' },
+      itemStyle: { color: '#3274d9' },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { type: 'dashed', color: '#28a745' },
+        data: [{ yAxis: 0.7, label: { formatter: 'pass ≥0.7', color: '#28a745' } }],
+      },
+    }],
   });
 }
 
@@ -384,6 +507,7 @@ function renderRunDetail(run) {
         ['Trigger signals', (detail.mutation.triggerSignals || []).join(', ') || '-'],
       ]) + '</div>';
     }
+    html += renderValidationBlock(detail.validation, run.status);
     if (detail.blastRadius) {
       html += '<div class="detail-block"><h4>Blast radius</h4>' + kv([
         ['Files', detail.blastRadius.files],
@@ -1174,6 +1298,21 @@ tr:last-child td { border-bottom: none; }
 .reason-list { padding-left: 18px; margin: 4px 0; font-size: 0.83rem; }
 .reason-list li { margin: 2px 0; }
 .snippet { font-size: 0.78rem; background: color-mix(in srgb, var(--text-main) 8%, transparent); padding: 8px; border-radius: 4px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+
+.score-bar { position: relative; display: inline-block; width: 90px; height: 16px; background: color-mix(in srgb, var(--text-main) 10%, transparent); border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.score-bar-lg { width: 240px; height: 22px; }
+.score-bar-fill { height: 100%; transition: width 0.4s ease; }
+.score-bar-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 600; color: var(--text-main); text-shadow: 0 0 2px var(--panel-bg); }
+.validation-block { grid-column: span 2; }
+.validation-summary { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-bottom: 10px; }
+.validation-status { display: flex; align-items: center; gap: 6px; font-size: 0.95rem; }
+.validation-score-wrap { display: flex; align-items: center; gap: 10px; }
+.validation-score-label { font-size: 0.78rem; color: var(--text-muted); }
+.validation-dims { margin: 6px 0; }
+.validation-dim { background: color-mix(in srgb, #28a745 20%, transparent) !important; color: #28a745 !important; }
+.validation-observed { margin-top: 6px; font-size: 0.82rem; }
+.validation-predictive { margin-top: 8px; font-size: 0.82rem; }
+.validation-predictive summary { cursor: pointer; color: var(--accent); }
 
 .skill-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .skill-list li { padding: 10px 0; border-bottom: 1px solid var(--border-color); }

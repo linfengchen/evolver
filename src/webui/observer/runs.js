@@ -41,11 +41,14 @@ function getRun(runId) {
 
 function buildRunDetail(runId) {
   const paths = getObserverPaths();
+  const memoryGraph = readJsonl(paths.memoryGraphPath);
+  const memoryDetail = buildMemoryGraphDetail(memoryGraph, runId);
+
   const solidify = readJsonSafe(paths.solidifyStatePath, null);
   const last = solidify && solidify.last_run;
-  if (!last) return null;
   const target = String(runId);
-  if (String(last.mutation_id) !== target && String(last.run_id) !== target) return null;
+  const lastMatches = last && (String(last.mutation_id) === target || String(last.run_id) === target);
+  if (!lastMatches) return memoryDetail;
   const safe = redactValue(last);
   return {
     parentEventId: safe.parent_event_id || null,
@@ -64,6 +67,60 @@ function buildRunDetail(runId) {
     sourceType: safe.source_type || null,
     reusedAssetId: safe.reused_asset_id || null,
     baselineGitHead: safe.baseline_git_head || null,
+    validation: memoryDetail && memoryDetail.validation || null,
+  };
+}
+
+function buildMemoryGraphDetail(events, runId) {
+  const target = String(runId);
+  const group = events.filter((evt) => {
+    const mid = evt && evt.mutation && evt.mutation.id || evt && evt.mutation_id;
+    return mid && String(mid) === target;
+  });
+  if (!group.length) return null;
+  const outcomeEvent = group.find((evt) => evt.kind === 'outcome');
+  return {
+    signals: extractSignals(group),
+    selector: extractSelector(group),
+    validation: outcomeEvent ? extractValidation(outcomeEvent) : null,
+    selectedGeneId: extractGeneId(group),
+  };
+}
+
+function extractSignals(group) {
+  const set = new Set();
+  group.forEach((evt) => (evt.signal && evt.signal.signals || []).forEach((s) => set.add(s)));
+  return Array.from(set);
+}
+
+function extractSelector(group) {
+  const evt = group.find((e) => e.action && e.action.selector) || group.find((e) => e.kind === 'attempt');
+  const selector = evt && (evt.action && evt.action.selector || evt.selector);
+  if (!selector) return null;
+  return {
+    selected: selector.selected,
+    reason: selector.reason || [],
+    selectionPath: selector.selectionPath || selector.selection_path,
+    memoryUsed: selector.memoryUsed || selector.memory_used,
+  };
+}
+
+function extractGeneId(group) {
+  const ref = group.map((e) => e.gene).find((g) => g);
+  if (!ref) return null;
+  return typeof ref === 'string' ? ref : ref.id || null;
+}
+
+function extractValidation(outcomeEvent) {
+  const outcome = outcomeEvent.outcome || {};
+  const note = typeof outcome.note === 'string' ? outcome.note.split('|').map((n) => n.trim()).filter(Boolean) : [];
+  return {
+    status: outcome.status || null,
+    score: typeof outcome.score === 'number' ? outcome.score : null,
+    dimensions: note,
+    observedSignals: outcome.observed && outcome.observed.current_signals || [],
+    predictive: outcome.predictive || null,
+    timestamp: outcomeEvent.ts || null,
   };
 }
 
@@ -129,6 +186,7 @@ function summaryFromMemoryGraphGroup(mutationId, group) {
   const status = outcomeEvent
     ? inferOutcome(outcomeEvent.outcome)
     : (hasAttempt ? 'running' : 'unknown');
+  const outcome = outcomeEvent && outcomeEvent.outcome || null;
   return {
     runId: String(mutationId),
     status,
@@ -136,7 +194,8 @@ function summaryFromMemoryGraphGroup(mutationId, group) {
     updatedAt: toIso(last.ts),
     finishedAt: outcomeEvent ? toIso(outcomeEvent.ts) : null,
     selectedGeneId: selectedGeneId || null,
-    outcome: (outcomeEvent && outcomeEvent.outcome) || null,
+    outcome,
+    score: outcome && typeof outcome.score === 'number' ? outcome.score : null,
   };
 }
 
