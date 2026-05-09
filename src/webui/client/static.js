@@ -362,7 +362,9 @@ function renderRunDetail(run) {
   // Detail sections
   if (detail) {
     html += '<div class="run-detail-grid">';
-    html += '<div class="detail-block"><h4>Signals</h4>' + pillList(detail.signals, 'signal') + '</div>';
+    html += '<div class="detail-block"><h4>Trigger signals</h4>' +
+      '<p class="muted small" style="margin:-4px 0 8px 0">Environment snapshot detected at run start (used to pick a matching Gene). Not errors.</p>' +
+      pillList(detail.signals, 'signal') + '</div>';
     if (detail.selector) {
       html += '<div class="detail-block"><h4>Selector reasoning</h4>' +
         kv([
