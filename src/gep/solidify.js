@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { createGene, VALID_CATEGORIES } = require('./schemas/gene');
+const { createCapsule } = require('./schemas/capsule');
 
 // Pick a valid Gene category, falling back when the caller-supplied intent is
 // missing or not in the canonical whitelist. Without this guard, createGene()
@@ -1002,9 +1003,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
     const capsuleContent = buildCapsuleContent({ intent, gene: geneUsed, signals, blast, mutation, score });
     const capsuleStrategy = geneUsed && Array.isArray(geneUsed.strategy) && geneUsed.strategy.length > 0
       ? geneUsed.strategy : undefined;
-    capsule = {
-      type: 'Capsule',
-      schema_version: SCHEMA_VERSION,
+    capsule = createCapsule({
       id: capsuleId,
       trigger: prevCapsule && Array.isArray(prevCapsule.trigger) && prevCapsule.trigger.length ? prevCapsule.trigger : signals,
       gene: geneUsed && geneUsed.id ? geneUsed.id : prevCapsule && prevCapsule.gene ? prevCapsule.gene : null,
@@ -1035,7 +1034,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         canary,
         outcomeStatus,
       }),
-    };
+    });
     capsule.asset_id = computeAssetId(capsule);
   }
 
@@ -1044,9 +1043,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
     try {
       const diffSnapshot = captureDiffSnapshot(repoRoot);
       if (diffSnapshot) {
-        const failedCapsule = {
-          type: 'Capsule',
-          schema_version: SCHEMA_VERSION,
+        const failedCapsule = createCapsule({
           id: 'failed_' + buildCapsuleId(ts),
           outcome: { status: 'failed', score: score },
           gene: geneUsed && geneUsed.id ? geneUsed.id : null,
@@ -1061,7 +1058,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
           env_fingerprint: envFp,
           blast_radius: { files: blast.files, lines: blast.lines },
           created_at: ts,
-        };
+        });
         failedCapsule.asset_id = computeAssetId(failedCapsule);
         appendFailedCapsule(failedCapsule);
         console.log('[Solidify] Preserved failed mutation as FailedCapsule: ' + failedCapsule.id);
@@ -1316,9 +1313,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
         apGene.anti_pattern = true;
         apGene.failure_reason = buildFailureReason(constraintCheck, validation, protocolViolations, canary);
         apGene.asset_id = computeAssetId(apGene);
-        const apCapsule = {
-          type: 'Capsule',
-          schema_version: SCHEMA_VERSION,
+        const apCapsule = createCapsule({
           id: 'failed_' + buildCapsuleId(ts),
           trigger: signals.slice(0, 8),
           gene: apGene.id,
@@ -1338,7 +1333,7 @@ function solidify({ intent, summary, dryRun = false, rollbackOnFailure = true } 
             canary,
             outcomeStatus: 'failed',
           }),
-        };
+        });
         apCapsule.asset_id = computeAssetId(apCapsule);
         const apModelName = (process.env.EVOLVER_MODEL_NAME || '').trim().slice(0, 100);
         const apMsg = buildApBundle({ gene: apGene, capsule: sanitizeAp(apCapsule), event: null, modelName: apModelName || undefined });
