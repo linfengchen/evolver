@@ -43,7 +43,9 @@ function buildRunDetail(runId) {
   const paths = getObserverPaths();
   const solidify = readJsonSafe(paths.solidifyStatePath, null);
   const last = solidify && solidify.last_run;
-  if (!last || String(last.run_id) !== String(runId)) return null;
+  if (!last) return null;
+  const target = String(runId);
+  if (String(last.mutation_id) !== target && String(last.run_id) !== target) return null;
   const safe = redactValue(last);
   return {
     parentEventId: safe.parent_event_id || null,
@@ -85,12 +87,19 @@ function buildRuns() {
   const events = readJsonl(paths.eventsPath).map(redactValue);
   const assetCalls = readJsonl(paths.assetCallLogPath).map(redactValue);
   const pipelineEvents = readPipelineEvents();
+  // memory_graph entries are nested deeper than the redact depth limit, so
+  // read raw and only consume non-sensitive fields (mutation.id, kind, ts,
+  // gene.id, outcome.status) when building summaries below.
+  const memoryGraphEvents = readJsonl(paths.memoryGraphPath);
   const runs = new Map();
 
-  addCycleRun(runs, cycle, solidify);
+  // Historical runs first (lowest priority — overwritten by more precise sources below).
+  for (const summary of summariesFromMemoryGraph(memoryGraphEvents)) mergeRun(runs, summary);
   for (const event of events) mergeRun(runs, summaryFromEvent(event));
   for (const call of assetCalls) mergeRun(runs, summaryFromAssetCall(call));
   for (const event of pipelineEvents) mergeRun(runs, summaryFromPipelineEvent(event));
+  // Cycle/solidify last so last_run overrides any history echo for the most recent run.
+  addCycleRun(runs, cycle, solidify);
 
   return Array.from(runs.values()).map((run) => ({
     ...run,
@@ -98,12 +107,47 @@ function buildRuns() {
   }));
 }
 
+function summariesFromMemoryGraph(events) {
+  const byMutation = new Map();
+  for (const evt of events) {
+    const mutationId = evt && evt.mutation && evt.mutation.id || evt && evt.mutation_id;
+    if (!mutationId) continue;
+    if (!byMutation.has(mutationId)) byMutation.set(mutationId, []);
+    byMutation.get(mutationId).push(evt);
+  }
+  return Array.from(byMutation.entries()).map(([mid, group]) => summaryFromMemoryGraphGroup(mid, group));
+}
+
+function summaryFromMemoryGraphGroup(mutationId, group) {
+  group.sort((a, b) => timestampOf(a.ts) - timestampOf(b.ts));
+  const first = group[0];
+  const last = group[group.length - 1];
+  const outcomeEvent = group.find((evt) => evt.kind === 'outcome');
+  const geneRef = group.map((evt) => evt.gene).find((g) => g);
+  const selectedGeneId = geneRef && (typeof geneRef === 'string' ? geneRef : geneRef.id || null);
+  const hasAttempt = group.some((evt) => evt.kind === 'attempt');
+  const status = outcomeEvent
+    ? inferOutcome(outcomeEvent.outcome)
+    : (hasAttempt ? 'running' : 'unknown');
+  return {
+    runId: String(mutationId),
+    status,
+    startedAt: toIso(first.ts),
+    updatedAt: toIso(last.ts),
+    finishedAt: outcomeEvent ? toIso(outcomeEvent.ts) : null,
+    selectedGeneId: selectedGeneId || null,
+    outcome: (outcomeEvent && outcomeEvent.outcome) || null,
+  };
+}
+
 function addCycleRun(runs, cycle, solidify) {
   if (!cycle && !(solidify && solidify.last_run)) return;
   const last = solidify && solidify.last_run || {};
   const lastSolidify = solidify && solidify.last_solidify || null;
   const pending = isPending(last, lastSolidify);
-  const runId = String(cycle && (cycle.run_id || cycle.outer_cycle) || last.run_id || last.mutation_id || 'current');
+  // Prefer mutation_id so cycle/solidify last_run unifies with the matching
+  // memory_graph entry (which is keyed by mutation.id) into a single Run row.
+  const runId = String(last.mutation_id || cycle && (cycle.run_id || cycle.outer_cycle) || last.run_id || 'current');
   mergeRun(runs, {
     runId,
     cycleId: cycle && String(cycle.outer_cycle || cycle.cycle_id || last.cycleId || ''),
