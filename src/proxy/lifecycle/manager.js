@@ -1,6 +1,7 @@
 'use strict';
 
 const { PROXY_PROTOCOL_VERSION } = require('../mailbox/store');
+const { recordLifecycleEvent } = require('./eventLog');
 const crypto = require('crypto');
 
 const DEFAULT_HEARTBEAT_INTERVAL = 360_000;
@@ -109,12 +110,26 @@ class LifecycleManager {
   }
 
   async hello({ rotateSecret = false } = {}) {
-    if (!this.hubUrl) return { ok: false, error: 'no_hub_url' };
+    const started = Date.now();
+    const finish = (result, statusCode) => {
+      recordLifecycleEvent({
+        kind: 'hello',
+        outcome: result.ok ? 'ok' : (result.error || 'fail'),
+        latency_ms: Date.now() - started,
+        status_code: statusCode || result.statusCode || null,
+        error: result.ok ? null : (result.error || null),
+        node_id: result.nodeId || this.nodeId || null,
+        extra: rotateSecret ? { rotate_secret: true } : null,
+      });
+      return result;
+    };
+
+    if (!this.hubUrl) return finish({ ok: false, error: 'no_hub_url' });
 
     if (this._helloRateLimitUntil > Date.now()) {
       const waitSec = Math.ceil((this._helloRateLimitUntil - Date.now()) / 1000);
       this.logger.warn(`[lifecycle] hello suppressed: rate limited for ${waitSec}s`);
-      return { ok: false, error: 'hello_rate_limit_active', waitSec };
+      return finish({ ok: false, error: 'hello_rate_limit_active', waitSec });
     }
 
     const endpoint = `${this.hubUrl}/a2a/hello`;
@@ -150,17 +165,17 @@ class LifecycleManager {
           const retryAfter = parseInt(res.headers.get('retry-after') || '3600', 10);
           this._helloRateLimitUntil = Date.now() + retryAfter * 1000;
           this.logger.error(`[lifecycle] hello rate limited (429): retry after ${retryAfter}s`);
-          return { ok: false, error: 'hello_rate_limited', retryAfter };
+          return finish({ ok: false, error: 'hello_rate_limited', retryAfter }, 429);
         }
         this.logger.error(`[lifecycle] hello HTTP ${res.status}: ${errMsg}`);
-        return { ok: false, error: errMsg, statusCode: res.status };
+        return finish({ ok: false, error: errMsg, statusCode: res.status }, res.status);
       }
 
       const data = await res.json();
 
       if (data?.payload?.status === 'rejected') {
         this.logger.error(`[lifecycle] hello rejected: ${data.payload.reason || 'unknown'}`);
-        return { ok: false, error: data.payload.reason || 'hello_rejected', response: data };
+        return finish({ ok: false, error: data.payload.reason || 'hello_rejected', response: data }, res.status);
       }
 
       const secret = data?.payload?.node_secret || data?.node_secret || null;
@@ -181,10 +196,10 @@ class LifecycleManager {
 
       this.store.setState('node_id', nodeId);
       this.logger.log(`[lifecycle] hello OK, node_id=${nodeId}${rotateSecret ? ' (secret rotated)' : ''}`);
-      return { ok: true, nodeId, response: data };
+      return finish({ ok: true, nodeId, response: data }, res.status);
     } catch (err) {
       this.logger.error(`[lifecycle] hello failed: ${err.message}`);
-      return { ok: false, error: err.message };
+      return finish({ ok: false, error: err.message });
     }
   }
 
@@ -291,12 +306,26 @@ class LifecycleManager {
   }
 
   async heartbeat({ _skipReauth = false } = {}) {
-    if (!this.hubUrl) return { ok: false, error: 'no_hub_url' };
+    const started = Date.now();
+    const finish = (result, statusCode) => {
+      recordLifecycleEvent({
+        kind: 'heartbeat',
+        outcome: result.ok ? (result.recovered ? 'recovered' : 'ok') : (result.error || 'fail'),
+        latency_ms: Date.now() - started,
+        status_code: statusCode || result.statusCode || null,
+        error: result.ok ? null : (result.error || null),
+        node_id: this.nodeId || null,
+        extra: result.recovered ? { recovered: true } : null,
+      });
+      return result;
+    };
+
+    if (!this.hubUrl) return finish({ ok: false, error: 'no_hub_url' });
 
     const nodeId = this.nodeId;
     if (!nodeId) {
       const helloResult = await this.hello();
-      if (!helloResult.ok) return helloResult;
+      if (!helloResult.ok) return finish(helloResult);
     }
 
     const endpoint = `${this.hubUrl}/a2a/heartbeat`;
@@ -332,17 +361,17 @@ class LifecycleManager {
           const recovered = await this.reAuthenticate();
           if (recovered) {
             this._consecutiveFailures = 0;
-            return { ok: true, recovered: true };
+            return finish({ ok: true, recovered: true }, res.status);
           }
         }
-        return { ok: false, error: `auth_failed_${res.status}`, statusCode: res.status };
+        return finish({ ok: false, error: `auth_failed_${res.status}`, statusCode: res.status }, res.status);
       }
 
       if (!res.ok) {
         this._consecutiveFailures++;
         const errText = await res.text().catch(() => '');
         this.logger.error(`[lifecycle] heartbeat HTTP ${res.status}: ${errText}`);
-        return { ok: false, error: `http_${res.status}`, statusCode: res.status };
+        return finish({ ok: false, error: `http_${res.status}`, statusCode: res.status }, res.status);
       }
 
       const data = await res.json();
@@ -381,11 +410,11 @@ class LifecycleManager {
         this.logger.warn(`[lifecycle] Hub requires proxy >= ${data.min_proxy_version}, current: ${PROXY_PROTOCOL_VERSION}`);
       }
 
-      return { ok: true, response: data };
+      return finish({ ok: true, response: data }, res.status);
     } catch (err) {
       this._consecutiveFailures++;
       this.logger.error(`[lifecycle] heartbeat failed (${this._consecutiveFailures}): ${err.message}`);
-      return { ok: false, error: err.message };
+      return finish({ ok: false, error: err.message });
     }
   }
 

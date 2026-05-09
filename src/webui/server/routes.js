@@ -23,6 +23,7 @@ function buildWebUiRoutes() {
     'GET /webui/personality': async () => ({ body: observer.getPersonality() }),
     'GET /webui/memory-graph': async ({ query }) => ({ body: observer.getMemoryGraph(query) }),
     'GET /webui/skills': async () => ({ body: observer.listSkills() }),
+    'GET /webui/lifecycle': async ({ query }) => ({ body: observer.getLifecycle(query) }),
     'GET /webui/logs/evolver': async ({ query }) => ({ body: observer.getEvolverLog(query) }),
   };
 }

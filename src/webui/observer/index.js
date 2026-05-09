@@ -7,6 +7,7 @@ const { getAssetOverview, listGenes, listCapsules, listEvents, listCandidates, l
 const { getInteractions } = require('./interactions');
 const { getPersonality, getMemoryGraph } = require('./personality');
 const { listSkills } = require('./skills');
+const { getLifecycle } = require('./lifecycle');
 const { getObserverPaths } = require('./paths');
 const { tailText } = require('./jsonl');
 const { redactText } = require('./redact');
@@ -33,5 +34,6 @@ module.exports = {
   getPersonality,
   getMemoryGraph,
   listSkills,
+  getLifecycle,
   getEvolverLog,
 };

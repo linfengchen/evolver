@@ -1007,6 +1007,7 @@ async function main() {
     }
 
     const { getHubUrl, getNodeId, buildHubHeaders, sendHelloToHub, getHubNodeSecret } = require('./src/gep/a2aProtocol');
+    const { recordLifecycleEvent: _recFetchEvent } = require('./src/proxy/lifecycle/eventLog');
 
     const hubUrl = getHubUrl();
     if (!hubUrl) {
@@ -1015,6 +1016,17 @@ async function main() {
       console.error('  export A2A_HUB_URL=https://evomap.ai');
       process.exit(1);
     }
+
+    const _fetchStart = Date.now();
+    const _recFetch = (outcome, statusCode, error) => _recFetchEvent({
+      kind: 'fetch',
+      outcome,
+      latency_ms: Date.now() - _fetchStart,
+      status_code: statusCode || null,
+      error: error || null,
+      node_id: (typeof getNodeId === 'function' && getNodeId()) || null,
+      extra: { skill_id: skillId },
+    });
 
     try {
       if (!getHubNodeSecret()) {
@@ -1073,6 +1085,7 @@ async function main() {
           console.error('[Verbose] Status: ' + resp.status + ' ' + (resp.statusText || ''));
           console.error('[Verbose] Response body: ' + (body || '(empty)').slice(0, 2000));
         }
+        _recFetch('fail', resp.status, errorCode || ('http_' + resp.status));
         process.exit(1);
       }
 
@@ -1200,14 +1213,17 @@ async function main() {
       } else {
         console.log('  Fetch cost: ' + (data.credit_cost || 0) + ' credits');
       }
+      _recFetch('ok', 200, null);
     } catch (error) {
       if (error && error.name === 'TimeoutError') {
         console.error('[fetch] Request timed out (30s). Check your network and A2A_HUB_URL.');
         console.error('  Hub URL: ' + hubUrl);
+        _recFetch('timeout', null, 'timeout');
       } else {
         console.error('[fetch] Error: ' + (error && error.message || error));
         if (error && error.cause) console.error('  Cause: ' + (error.cause.message || error.cause.code || error.cause));
         if (isVerbose && error && error.stack) console.error('[Verbose] Stack:\n' + error.stack);
+        _recFetch('fail', null, error && error.message || String(error));
       }
       process.exit(1);
     }

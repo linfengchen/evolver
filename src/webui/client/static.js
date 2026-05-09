@@ -104,6 +104,12 @@ function getIndexHtml() {
         </div>
       </div>
       <div class="panel">
+        <h2>Hub Lifecycle (hello / heartbeat / fetch)</h2>
+        <p class="muted small" style="margin:-8px 0 12px 0">Connection-layer requests sent to the Hub. Recorded to <code>~/.evomap/lifecycle_log.jsonl</code> with rolling retention (default 5000 lines / 30 days).</p>
+        <div id="lifecycle-summary" class="lifecycle-summary">Loading...</div>
+        <div id="lifecycle-recent">Loading...</div>
+      </div>
+      <div class="panel">
         <h2>Proxy Snapshots</h2>
         <div id="proxy-snapshots" class="snapshot-grid">Loading...</div>
       </div>
@@ -831,9 +837,10 @@ async function loadInteractions() {
   $('hub-stream').innerHTML = '<p class="muted">Loading...</p>';
   $('agent-stream').innerHTML = '<p class="muted">Loading...</p>';
   try {
-    const [callsResult, interactions] = await Promise.all([
+    const [callsResult, interactions, lifecycle] = await Promise.all([
       api('/webui/assets/calls?limit=500'),
       api('/webui/interactions?last=200'),
+      api('/webui/lifecycle?last=500'),
     ]);
     const calls = callsResult.data || [];
     const proofs = interactions.proxySnapshots?.atpProofs?.body?.proofs || interactions.proxySnapshots?.atpProofs?.body || [];
@@ -845,10 +852,64 @@ async function loadInteractions() {
     renderHubStream(calls, Array.isArray(proofs) ? proofs : [], Array.isArray(orders) ? orders : []);
     renderAgentStream(mailbox, Array.isArray(sessions) ? sessions : [], Array.isArray(dms) ? dms : []);
     renderInteractionCharts(calls, Array.isArray(proofs) ? proofs : [], mailbox);
+    renderLifecycle(lifecycle);
     renderProxySnapshots(interactions.proxySnapshots);
   } catch (err) {
     $('hub-stream').innerHTML = '<p class="status-failed">Failed: ' + esc(err.message) + '</p>';
   }
+}
+
+function renderLifecycle(payload) {
+  const summary = payload?.summary || {};
+  const events = payload?.events || [];
+  const summaryEl = $('lifecycle-summary');
+  const recentEl = $('lifecycle-recent');
+  if (!events.length) {
+    summaryEl.innerHTML = '<p class="muted">No lifecycle events recorded yet. Start <code>evolver run</code> or <code>evolver fetch</code> to populate this log.</p>';
+    recentEl.innerHTML = '';
+    return;
+  }
+  const healthCls = summary.heartbeatHealthPct == null ? 'unknown'
+    : summary.heartbeatHealthPct >= 95 ? 'success'
+    : summary.heartbeatHealthPct >= 70 ? 'pending' : 'failed';
+
+  summaryEl.innerHTML =
+    statBox('Heartbeat health', summary.heartbeatHealthPct == null ? '—' : summary.heartbeatHealthPct + '%', healthCls) +
+    statBox('Events (24h)', String(summary.last24h ?? 0)) +
+    statBox('Hello / Heartbeat / Fetch', (summary.byKind?.hello || 0) + ' / ' + (summary.byKind?.heartbeat || 0) + ' / ' + (summary.byKind?.fetch || 0)) +
+    statBox('Latency p50/p95', summary.latencyP50 == null ? '—' : (summary.latencyP50 + ' / ' + (summary.latencyP95 ?? '—') + ' ms')) +
+    statBox('Last hello OK', formatTime(summary.lastHelloOk)) +
+    statBox('Last heartbeat OK', formatTime(summary.lastHeartbeatOk));
+
+  if (summary.lastError) {
+    summaryEl.innerHTML += '<div class="lifecycle-last-error"><strong>Last error:</strong> ' +
+      esc(summary.lastError.kind) + ' → ' + esc(summary.lastError.outcome) +
+      (summary.lastError.error ? ' (' + esc(summary.lastError.error) + ')' : '') +
+      ' <span class="muted small">' + formatTime(summary.lastError.ts) + '</span></div>';
+  }
+
+  const rows = events.slice(-100).reverse().map((e) => {
+    const ok = e.outcome === 'ok' || e.outcome === 'recovered';
+    return '<tr class="' + (ok ? 'ok' : 'fail') + '">' +
+      '<td>' + esc(formatTime(e.ts)) + '</td>' +
+      '<td><span class="pill ' + esc(e.kind) + '">' + esc(e.kind) + '</span></td>' +
+      '<td><span class="status-indicator ' + (ok ? 'success' : 'failed') + '"></span>' + esc(e.outcome) + '</td>' +
+      '<td>' + (e.status_code ?? '—') + '</td>' +
+      '<td>' + (e.latency_ms == null ? '—' : e.latency_ms + ' ms') + '</td>' +
+      '<td class="lifecycle-error">' + esc(e.error || '') + '</td>' +
+      '</tr>';
+  }).join('');
+
+  recentEl.innerHTML = '<table class="data-table lifecycle-table">' +
+    '<thead><tr><th>Time</th><th>Kind</th><th>Outcome</th><th>Status</th><th>Latency</th><th>Error</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
+}
+
+function statBox(label, value, cls) {
+  return '<div class="stat-box ' + (cls || '') + '">' +
+    '<div class="stat-label">' + esc(label) + '</div>' +
+    '<div class="stat-value">' + esc(value) + '</div>' +
+    '</div>';
 }
 
 // ---- Personality ----
@@ -1298,6 +1359,21 @@ tr:last-child td { border-bottom: none; }
 .reason-list { padding-left: 18px; margin: 4px 0; font-size: 0.83rem; }
 .reason-list li { margin: 2px 0; }
 .snippet { font-size: 0.78rem; background: color-mix(in srgb, var(--text-main) 8%, transparent); padding: 8px; border-radius: 4px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+
+.lifecycle-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.stat-box { background: color-mix(in srgb, var(--panel-bg) 95%, var(--text-main) 5%); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; }
+.stat-box.success { border-color: color-mix(in srgb, #28a745 40%, var(--border-color)); }
+.stat-box.pending { border-color: color-mix(in srgb, #ffc107 40%, var(--border-color)); }
+.stat-box.failed { border-color: color-mix(in srgb, #dc3545 40%, var(--border-color)); }
+.stat-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-size: 1.05rem; font-weight: 600; margin-top: 4px; }
+.lifecycle-last-error { grid-column: 1 / -1; padding: 8px 12px; border-radius: 4px; background: color-mix(in srgb, #dc3545 10%, transparent); border: 1px solid color-mix(in srgb, #dc3545 30%, transparent); font-size: 0.85rem; }
+.lifecycle-table { font-size: 0.82rem; }
+.lifecycle-table tr.fail td { color: #dc3545; }
+.lifecycle-error { font-family: ui-monospace, monospace; font-size: 0.78rem; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill.hello { background: color-mix(in srgb, #3274d9 20%, transparent); color: #3274d9; }
+.pill.heartbeat { background: color-mix(in srgb, #28a745 20%, transparent); color: #28a745; }
+.pill.fetch { background: color-mix(in srgb, #6f42c1 20%, transparent); color: #6f42c1; }
 
 .score-bar { position: relative; display: inline-block; width: 90px; height: 16px; background: color-mix(in srgb, var(--text-main) 10%, transparent); border-radius: 4px; overflow: hidden; vertical-align: middle; }
 .score-bar-lg { width: 240px; height: 22px; }
