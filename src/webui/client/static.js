@@ -91,23 +91,26 @@ function getIndexHtml() {
         <div class="panel"><h2>Activity (last 30 days)</h2><div id="activityChart" class="chart-container"></div></div>
         <div class="panel"><h2>Mailbox by Type</h2><div id="mailboxChart" class="chart-container"></div></div>
       </div>
-      <div class="grid-bottom">
-        <div class="panel">
-          <h2>Hub A2A Stream</h2>
-          <p class="muted small" style="margin:-8px 0 12px 0">Asset calls and ATP proofs/orders exchanged with the Hub.</p>
-          <div id="hub-stream">Loading...</div>
+      <div class="panel">
+        <h2>Hub Activity</h2>
+        <p class="muted small" style="margin:-8px 0 12px 0">Unified timeline of every Hub interaction — connection lifecycle (hello/heartbeat/fetch), asset calls (search/reuse/publish) and ATP credit flows.</p>
+        <div id="hub-activity-summary" class="lifecycle-summary">Loading...</div>
+        <div class="filter-bar" id="hub-activity-filters" style="display:none">
+          <div class="filter-group">
+            <span class="filter-label">Layer</span>
+            <button class="filter-pill active" data-filter-layer="all">All</button>
+            <button class="filter-pill" data-filter-layer="lifecycle">Lifecycle</button>
+            <button class="filter-pill" data-filter-layer="asset">Asset</button>
+            <button class="filter-pill" data-filter-layer="atp">ATP</button>
+          </div>
+          <label class="filter-toggle"><input type="checkbox" id="hide-heartbeats" checked /> Hide heartbeats</label>
         </div>
-        <div class="panel">
-          <h2>Agent Interactions</h2>
-          <p class="muted small" style="margin:-8px 0 12px 0">Mailbox messages, sessions and DMs (read-only, redacted).</p>
-          <div id="agent-stream">Loading...</div>
-        </div>
+        <div id="hub-activity">Loading...</div>
       </div>
       <div class="panel">
-        <h2>Hub Lifecycle (hello / heartbeat / fetch)</h2>
-        <p class="muted small" style="margin:-8px 0 12px 0">Connection-layer requests sent to the Hub.</p>
-        <div id="lifecycle-summary" class="lifecycle-summary">Loading...</div>
-        <div id="lifecycle-recent">Loading...</div>
+        <h2>Agent Interactions</h2>
+        <p class="muted small" style="margin:-8px 0 12px 0">Mailbox messages, sessions and DMs (read-only, redacted).</p>
+        <div id="agent-stream">Loading...</div>
       </div>
       <div class="panel">
         <h2>Proxy Snapshots</h2>
@@ -671,41 +674,163 @@ async function loadAsset(kind) {
   }
 }
 
-// ---- Interactions (Hub A2A + Agent) ----
+// ---- Interactions (Hub Activity unified timeline + Agent) ----
 
-function renderHubStream(calls, atpProofs, atpOrders) {
-  const items = [];
-  (calls || []).forEach((c) => items.push({
-    kind: 'asset',
+const HUB_ACTIVITY_STATE = { layer: 'all', hideHeartbeats: true, events: [] };
+
+function buildHubActivityEvents(calls, atpProofs, atpOrders, lifecycleEvents) {
+  const events = [];
+  (lifecycleEvents || []).forEach((e) => events.push({
+    layer: 'lifecycle',
+    time: e.ts,
+    kind: e.kind,
+    outcome: e.outcome,
+    statusCode: e.status_code,
+    latencyMs: e.latency_ms,
+    error: e.error,
+    title: e.kind === 'fetch' && e.extra?.skill_id ? 'skill: ' + e.extra.skill_id : (e.node_id || '-'),
+  }));
+  (calls || []).forEach((c) => events.push({
+    layer: 'asset',
     time: c.timestamp,
-    action: c.action,
-    title: c.asset_id || '-',
-    meta: 'run ' + (c.run_id || '-') + (c.score != null ? ' · score ' + c.score : ''),
-    detail: c,
+    kind: c.action,
+    outcome: inferAssetOutcome(c.action),
+    title: c.asset_id || c.reason || '-',
+    meta: c.run_id ? 'run ' + c.run_id : null,
+    score: c.score,
   }));
-  (atpProofs || []).forEach((p) => items.push({
-    kind: 'atp_proof',
+  (atpProofs || []).forEach((p) => events.push({
+    layer: 'atp',
     time: p.created_at || p.timestamp,
-    action: 'atp_' + (p.status || 'proof'),
+    kind: 'proof_' + (p.status || 'pending'),
+    outcome: p.status === 'verified' || p.status === 'accepted' ? 'ok' : (p.status || 'pending'),
     title: p.delivery_id || p.order_id || '-',
-    meta: (p.role || 'consumer') + ' · ' + (p.amount != null ? p.amount + ' credits' : '-'),
-    detail: p,
+    meta: (p.role || 'consumer') + (p.amount != null ? ' · ' + p.amount + ' credits' : ''),
   }));
-  (atpOrders || []).forEach((o) => items.push({
-    kind: 'atp_order',
+  (atpOrders || []).forEach((o) => events.push({
+    layer: 'atp',
     time: o.created_at || o.updated_at,
-    action: 'atp_order_' + (o.status || 'pending'),
+    kind: 'order_' + (o.status || 'pending'),
+    outcome: o.status === 'completed' ? 'ok' : (o.status || 'pending'),
     title: o.order_id || o.id || '-',
-    meta: (o.routing || '-') + ' · ' + (o.budget != null ? o.budget + ' credits' : '-'),
-    detail: o,
+    meta: (o.routing || '-') + (o.budget != null ? ' · ' + o.budget + ' credits' : ''),
   }));
+  return events.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+}
 
-  if (!items.length) {
-    $('hub-stream').innerHTML = '<p class="muted">No Hub interactions recorded yet. Run <code>evolver run</code> or place an ATP order to populate.</p>';
+function inferAssetOutcome(action) {
+  if (!action) return 'unknown';
+  if (action.endsWith('_hit') || action === 'asset_reuse' || action === 'asset_reference' || action === 'asset_publish') return 'ok';
+  if (action.endsWith('_miss') || action.endsWith('_skip')) return 'miss';
+  return action;
+}
+
+function summarizeHubActivity(events) {
+  const now = Date.now();
+  const last24h = events.filter((e) => Date.parse(e.time || 0) >= now - 24 * 60 * 60 * 1000);
+  const heartbeats = events.filter((e) => e.layer === 'lifecycle' && e.kind === 'heartbeat');
+  const heartbeatOk = heartbeats.filter((e) => e.outcome === 'ok' || e.outcome === 'recovered');
+  const heartbeatHealthPct = heartbeats.length === 0 ? null : Math.round((heartbeatOk.length / heartbeats.length) * 100);
+  const latencies = events.filter((e) => typeof e.latencyMs === 'number').map((e) => e.latencyMs);
+  const lastHelloOk = events.find((e) => e.layer === 'lifecycle' && e.kind === 'hello' && e.outcome === 'ok')?.time;
+  const lastHeartbeatOk = events.find((e) => e.layer === 'lifecycle' && e.kind === 'heartbeat' && (e.outcome === 'ok' || e.outcome === 'recovered'))?.time;
+  const assetEvents = events.filter((e) => e.layer === 'asset');
+  const assetHits = assetEvents.filter((e) => e.outcome === 'ok').length;
+  const assetHitRate = assetEvents.length === 0 ? null : Math.round((assetHits / assetEvents.length) * 100);
+
+  return {
+    total: events.length,
+    last24h: last24h.length,
+    heartbeatHealthPct,
+    assetHitRate,
+    lastHelloOk,
+    lastHeartbeatOk,
+    latencyP50: percentile(latencies, 50),
+    latencyP95: percentile(latencies, 95),
+  };
+}
+
+function percentile(values, p) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))];
+}
+
+function renderHubActivity(events) {
+  HUB_ACTIVITY_STATE.events = events;
+  renderHubActivitySummary(summarizeHubActivity(events));
+  bindHubActivityFilters();
+  renderHubActivityTable();
+}
+
+function renderHubActivitySummary(s) {
+  const healthCls = s.heartbeatHealthPct == null ? '' : s.heartbeatHealthPct >= 95 ? 'success' : s.heartbeatHealthPct >= 70 ? 'pending' : 'failed';
+  const hitCls = s.assetHitRate == null ? '' : s.assetHitRate >= 50 ? 'success' : s.assetHitRate >= 20 ? 'pending' : 'failed';
+  $('hub-activity-summary').innerHTML =
+    statBox('Heartbeat health', s.heartbeatHealthPct == null ? '—' : s.heartbeatHealthPct + '%', healthCls) +
+    statBox('Asset hit rate', s.assetHitRate == null ? '—' : s.assetHitRate + '%', hitCls) +
+    statBox('Events (24h)', String(s.last24h ?? 0)) +
+    statBox('Latency p50/p95', s.latencyP50 == null ? '—' : (s.latencyP50 + ' / ' + (s.latencyP95 ?? '—') + ' ms')) +
+    statBox('Last hello OK', formatTime(s.lastHelloOk)) +
+    statBox('Last heartbeat OK', formatTime(s.lastHeartbeatOk));
+}
+
+function bindHubActivityFilters() {
+  const bar = $('hub-activity-filters');
+  if (!bar) return;
+  bar.style.display = HUB_ACTIVITY_STATE.events.length ? 'flex' : 'none';
+  bar.querySelectorAll('[data-filter-layer]').forEach((btn) => {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.addEventListener('click', () => {
+      HUB_ACTIVITY_STATE.layer = btn.getAttribute('data-filter-layer');
+      bar.querySelectorAll('[data-filter-layer]').forEach((b) => b.classList.toggle('active', b === btn));
+      renderHubActivityTable();
+    });
+  });
+  const cb = $('hide-heartbeats');
+  if (cb && !cb._bound) {
+    cb._bound = true;
+    cb.checked = HUB_ACTIVITY_STATE.hideHeartbeats;
+    cb.addEventListener('change', () => {
+      HUB_ACTIVITY_STATE.hideHeartbeats = cb.checked;
+      renderHubActivityTable();
+    });
+  }
+}
+
+function renderHubActivityTable() {
+  const filtered = HUB_ACTIVITY_STATE.events.filter((e) => {
+    if (HUB_ACTIVITY_STATE.layer !== 'all' && e.layer !== HUB_ACTIVITY_STATE.layer) return false;
+    if (HUB_ACTIVITY_STATE.hideHeartbeats && e.layer === 'lifecycle' && e.kind === 'heartbeat' && (e.outcome === 'ok' || e.outcome === 'recovered')) return false;
+    return true;
+  }).slice(0, 150);
+
+  if (!filtered.length) {
+    $('hub-activity').innerHTML = HUB_ACTIVITY_STATE.events.length
+      ? '<p class="muted">No events match the current filters.</p>'
+      : '<p class="muted">No Hub activity recorded yet. Start <code>evolver run</code> or <code>evolver fetch</code> to populate.</p>';
     return;
   }
-  items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
-  $('hub-stream').innerHTML = '<ul class="stream-list">' + items.slice(0, 60).map(streamItem).join('') + '</ul>';
+
+  const rows = filtered.map((e) => {
+    const ok = e.outcome === 'ok' || e.outcome === 'recovered';
+    const fail = e.outcome && (String(e.outcome).startsWith('fail') || String(e.outcome).startsWith('auth_failed') || String(e.outcome).startsWith('http_'));
+    const cls = ok ? 'ok' : fail ? 'fail' : 'neutral';
+    return '<tr class="' + cls + '">' +
+      '<td>' + esc(formatTime(e.time)) + '</td>' +
+      '<td><span class="pill ' + esc(e.layer) + '">' + esc(e.layer) + '</span></td>' +
+      '<td><span class="pill ' + esc(e.kind || '-') + '">' + esc(e.kind || '-') + '</span></td>' +
+      '<td><span class="status-indicator ' + (ok ? 'success' : fail ? 'failed' : 'unknown') + '"></span>' + esc(e.outcome || '-') + '</td>' +
+      '<td>' + (e.statusCode ?? '—') + '</td>' +
+      '<td>' + (e.latencyMs == null ? '—' : e.latencyMs + ' ms') + '</td>' +
+      '<td class="lifecycle-error">' + esc(e.title || '') + (e.meta ? ' <span class="muted small">' + esc(e.meta) + '</span>' : '') + (e.error ? ' <span class="status-failed">' + esc(e.error) + '</span>' : '') + '</td>' +
+      '</tr>';
+  }).join('');
+
+  $('hub-activity').innerHTML = '<table class="data-table lifecycle-table">' +
+    '<thead><tr><th>Time</th><th>Layer</th><th>Kind</th><th>Outcome</th><th>Status</th><th>Latency</th><th>Detail</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
 }
 
 function renderAgentStream(mailbox, sessions, dms) {
@@ -834,7 +959,7 @@ function renderProxySnapshots(snapshots) {
 }
 
 async function loadInteractions() {
-  $('hub-stream').innerHTML = '<p class="muted">Loading...</p>';
+  $('hub-activity').innerHTML = '<p class="muted">Loading...</p>';
   $('agent-stream').innerHTML = '<p class="muted">Loading...</p>';
   try {
     const [callsResult, interactions, lifecycle] = await Promise.all([
@@ -848,61 +973,21 @@ async function loadInteractions() {
     const sessions = interactions.proxySnapshots?.sessions?.body?.sessions || interactions.proxySnapshots?.sessions?.body || [];
     const dms = interactions.proxySnapshots?.dms?.body?.dms || interactions.proxySnapshots?.dms?.body || [];
     const mailbox = interactions.mailbox?.data || [];
+    const lifecycleEvents = lifecycle?.events || [];
 
-    renderHubStream(calls, Array.isArray(proofs) ? proofs : [], Array.isArray(orders) ? orders : []);
+    const unified = buildHubActivityEvents(
+      calls,
+      Array.isArray(proofs) ? proofs : [],
+      Array.isArray(orders) ? orders : [],
+      lifecycleEvents,
+    );
+    renderHubActivity(unified);
     renderAgentStream(mailbox, Array.isArray(sessions) ? sessions : [], Array.isArray(dms) ? dms : []);
     renderInteractionCharts(calls, Array.isArray(proofs) ? proofs : [], mailbox);
-    renderLifecycle(lifecycle);
     renderProxySnapshots(interactions.proxySnapshots);
   } catch (err) {
-    $('hub-stream').innerHTML = '<p class="status-failed">Failed: ' + esc(err.message) + '</p>';
+    $('hub-activity').innerHTML = '<p class="status-failed">Failed: ' + esc(err.message) + '</p>';
   }
-}
-
-function renderLifecycle(payload) {
-  const summary = payload?.summary || {};
-  const events = payload?.events || [];
-  const summaryEl = $('lifecycle-summary');
-  const recentEl = $('lifecycle-recent');
-  if (!events.length) {
-    summaryEl.innerHTML = '<p class="muted">No lifecycle events recorded yet. Start <code>evolver run</code> or <code>evolver fetch</code> to populate this log.</p>';
-    recentEl.innerHTML = '';
-    return;
-  }
-  const healthCls = summary.heartbeatHealthPct == null ? 'unknown'
-    : summary.heartbeatHealthPct >= 95 ? 'success'
-    : summary.heartbeatHealthPct >= 70 ? 'pending' : 'failed';
-
-  summaryEl.innerHTML =
-    statBox('Heartbeat health', summary.heartbeatHealthPct == null ? '—' : summary.heartbeatHealthPct + '%', healthCls) +
-    statBox('Events (24h)', String(summary.last24h ?? 0)) +
-    statBox('Hello / Heartbeat / Fetch', (summary.byKind?.hello || 0) + ' / ' + (summary.byKind?.heartbeat || 0) + ' / ' + (summary.byKind?.fetch || 0)) +
-    statBox('Latency p50/p95', summary.latencyP50 == null ? '—' : (summary.latencyP50 + ' / ' + (summary.latencyP95 ?? '—') + ' ms')) +
-    statBox('Last hello OK', formatTime(summary.lastHelloOk)) +
-    statBox('Last heartbeat OK', formatTime(summary.lastHeartbeatOk));
-
-  if (summary.lastError) {
-    summaryEl.innerHTML += '<div class="lifecycle-last-error"><strong>Last error:</strong> ' +
-      esc(summary.lastError.kind) + ' → ' + esc(summary.lastError.outcome) +
-      (summary.lastError.error ? ' (' + esc(summary.lastError.error) + ')' : '') +
-      ' <span class="muted small">' + formatTime(summary.lastError.ts) + '</span></div>';
-  }
-
-  const rows = events.slice(-100).reverse().map((e) => {
-    const ok = e.outcome === 'ok' || e.outcome === 'recovered';
-    return '<tr class="' + (ok ? 'ok' : 'fail') + '">' +
-      '<td>' + esc(formatTime(e.ts)) + '</td>' +
-      '<td><span class="pill ' + esc(e.kind) + '">' + esc(e.kind) + '</span></td>' +
-      '<td><span class="status-indicator ' + (ok ? 'success' : 'failed') + '"></span>' + esc(e.outcome) + '</td>' +
-      '<td>' + (e.status_code ?? '—') + '</td>' +
-      '<td>' + (e.latency_ms == null ? '—' : e.latency_ms + ' ms') + '</td>' +
-      '<td class="lifecycle-error">' + esc(e.error || '') + '</td>' +
-      '</tr>';
-  }).join('');
-
-  recentEl.innerHTML = '<table class="data-table lifecycle-table">' +
-    '<thead><tr><th>Time</th><th>Kind</th><th>Outcome</th><th>Status</th><th>Latency</th><th>Error</th></tr></thead>' +
-    '<tbody>' + rows + '</tbody></table>';
 }
 
 function statBox(label, value, cls) {
@@ -1360,6 +1445,14 @@ tr:last-child td { border-bottom: none; }
 .reason-list li { margin: 2px 0; }
 .snippet { font-size: 0.78rem; background: color-mix(in srgb, var(--text-main) 8%, transparent); padding: 8px; border-radius: 4px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 
+.filter-bar { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 8px 0 12px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 12px; }
+.filter-group { display: flex; gap: 6px; align-items: center; }
+.filter-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.filter-pill { background: transparent; color: var(--text-muted); border: 1px solid var(--border-color); padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 0.8rem; }
+.filter-pill:hover { color: var(--text-main); border-color: var(--accent); }
+.filter-pill.active { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.filter-toggle { display: flex; gap: 6px; align-items: center; font-size: 0.82rem; color: var(--text-muted); cursor: pointer; }
+
 .lifecycle-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .stat-box { background: color-mix(in srgb, var(--panel-bg) 95%, var(--text-main) 5%); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; }
 .stat-box.success { border-color: color-mix(in srgb, #28a745 40%, var(--border-color)); }
@@ -1374,6 +1467,9 @@ tr:last-child td { border-bottom: none; }
 .pill.hello { background: color-mix(in srgb, #3274d9 20%, transparent); color: #3274d9; }
 .pill.heartbeat { background: color-mix(in srgb, #28a745 20%, transparent); color: #28a745; }
 .pill.fetch { background: color-mix(in srgb, #6f42c1 20%, transparent); color: #6f42c1; }
+.pill.lifecycle { background: color-mix(in srgb, #3274d9 18%, transparent); color: #3274d9; }
+.pill.asset { background: color-mix(in srgb, #e3a008 20%, transparent); color: #e3a008; }
+.pill.atp { background: color-mix(in srgb, #6f42c1 18%, transparent); color: #6f42c1; }
 
 .score-bar { position: relative; display: inline-block; width: 90px; height: 16px; background: color-mix(in srgb, var(--text-main) 10%, transparent); border-radius: 4px; overflow: hidden; vertical-align: middle; }
 .score-bar-lg { width: 240px; height: 22px; }
