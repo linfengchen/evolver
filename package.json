@@ -29,6 +29,7 @@
     "solidify": "node index.js solidify",
     "review": "node index.js review",
     "distill": "node index.js distill",
+    "webui": "node index.js webui",
     "test": "node -e \"const fs=require('fs'),cp=require('child_process');cp.execSync('node --test '+fs.readdirSync('test').filter(f=>f.endsWith('.test.js')).map(f=>'test/'+f).join(' '),{stdio:'inherit'})\"",
     "a2a:export": "node scripts/a2a_export.js",
     "a2a:ingest": "node scripts/a2a_ingest.js",
