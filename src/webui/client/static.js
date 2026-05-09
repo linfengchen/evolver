@@ -276,15 +276,25 @@ function renderLatestRun(runs) {
     ['Run ID', run.runId],
     ['Status', '<span class="status-indicator ' + getStatusClass(run.status) + '"></span>' + run.status],
     ['Selected Gene', run.selectedGeneId || '-'],
-    ['Validation', run.validationResult || 'unknown'],
+    ['Validation', validationDisplay(run)],
     ['Updated', formatTime(run.updatedAt)],
     ['Requires confirmation', run.requiresConfirmation ? 'yes' : 'no'],
   ]).replace(/&lt;span/g, '<span').replace(/&lt;\\/span&gt;/g, '</span>');
 }
 
+function validationDisplay(run) {
+  if (run.validationResult === 'pass') return 'pass';
+  if (run.validationResult === 'fail') return 'fail';
+  if (run.status === 'review_pending') return 'pending review';
+  if (run.status === 'running' || run.status === 'pending') return 'in progress';
+  if (run.status === 'failed') return 'not run';
+  return 'not run';
+}
+
 function renderSkills(skills) {
   if (!skills.exists || !skills.items.length) {
-    $('skills').innerHTML = '<p class="muted">No local skills installed yet.</p>';
+    $('skills').innerHTML = '<p class="muted">No local skills installed yet.</p>' +
+      '<p class="muted small">Use <code>evolver fetch --skill=&lt;id&gt;</code> to install one from the Hub.</p>';
     return;
   }
   $('skills').innerHTML = '<ul class="skill-list">' + skills.items.map((skill) =>

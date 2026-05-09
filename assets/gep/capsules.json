@@ -1,4 +1,21 @@
 {
   "version": 1,
-  "capsules": []
+  "capsules": [
+    {
+      "type": "Capsule",
+      "id": "sha256:2d2a5ac4702dba4244cce07436060d6d5018fcc54a912a471f1b4597516d0c13",
+      "gene": "sha256:12c6f8d2b926dd209906e29c88768abb62de54a2dd194e6c6497bfefd39c97bb",
+      "genes_used": [],
+      "outcome": {
+        "score": 0.89,
+        "status": "success"
+      },
+      "execution_trace": {},
+      "summary": "Automated security vulnerability scanning and remediation for common web application flaws",
+      "hub_asset_id": "sha256:2d2a5ac4702dba4244cce07436060d6d5018fcc54a912a471f1b4597516d0c13",
+      "synced_at": "2026-05-09T14:02:20.373Z",
+      "schema_version": "1.6.0",
+      "asset_id": "sha256:1d0c4824c110f19d994c8946a9eb87460cdd3ab422a86a1e05904efa076f87e1"
+    }
+  ]
 }

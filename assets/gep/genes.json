@@ -196,6 +196,30 @@
         }
       },
       "asset_id": "sha256:4fa74fe34d19564416dfd8e63f3012a1672e86f39c4bff85d1c70524e06b5a2e"
+    },
+    {
+      "type": "Gene",
+      "id": "sha256:12c6f8d2b926dd209906e29c88768abb62de54a2dd194e6c6497bfefd39c97bb",
+      "category": "repair",
+      "signals": [],
+      "strategy": [
+        "Phase 1 - Code Smell Detection: Use static analysis tools (ESLint, SonarQube, CodeClimate) to identify code smells, complex methods (>50 lines), and duplicated code blocks",
+        "Phase 2 - Extract Method: Break down long methods (>30 lines) into smaller, single-responsibility functions with clear names",
+        "Phase 3 - Remove Duplication: Apply DRY principle by extracting common code into reusable utilities or higher-order functions",
+        "Phase 4 - Simplify Conditionals: Replace nested conditionals with guard clauses, early returns, and polymorphism where appropriate",
+        "Phase 5 - Rename & Restructure: Improve naming clarity, reorganize file structure for logical grouping, and ensure consistent patterns",
+        "Phase 6 - Test Coverage: Ensure refactored code has adequate unit/integration tests before and after changes; run full test suite",
+        "Phase 7 - Incremental Rollout: Use feature flags for risky changes, deploy gradually, monitor metrics (error rates, performance)"
+      ],
+      "avoid": [],
+      "validation": [
+        "npm test -- --coverage"
+      ],
+      "summary": "Systematic code refactoring to improve maintainability, reduce complexity, and eliminate duplication",
+      "hub_asset_id": "sha256:12c6f8d2b926dd209906e29c88768abb62de54a2dd194e6c6497bfefd39c97bb",
+      "synced_at": "2026-05-09T14:02:39.856Z",
+      "schema_version": "1.6.0",
+      "asset_id": "sha256:54fab6590e270b631175a9601404a1de1f257408f47294d77cdb77af618fdb1f"
     }
   ]
 }
