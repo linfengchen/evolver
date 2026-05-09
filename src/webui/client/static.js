@@ -105,7 +105,7 @@ function getIndexHtml() {
       </div>
       <div class="panel">
         <h2>Hub Lifecycle (hello / heartbeat / fetch)</h2>
-        <p class="muted small" style="margin:-8px 0 12px 0">Connection-layer requests sent to the Hub. Recorded to <code>~/.evomap/lifecycle_log.jsonl</code> with rolling retention (default 5000 lines / 30 days).</p>
+        <p class="muted small" style="margin:-8px 0 12px 0">Connection-layer requests sent to the Hub.</p>
         <div id="lifecycle-summary" class="lifecycle-summary">Loading...</div>
         <div id="lifecycle-recent">Loading...</div>
       </div>
