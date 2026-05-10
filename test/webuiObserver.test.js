@@ -108,6 +108,43 @@ describe('webui observer', () => {
     assert.ok(detail.phases.some((phase) => phase.phase === 'asset_search' && phase.status === 'success'));
   });
 
+  it('reclassifies stale "running" runs as abandoned', () => {
+    const evoDir = process.env.EVOLUTION_DIR;
+    const oldTs = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(); // 8h ago
+    const freshTs = new Date(Date.now() - 60 * 1000).toISOString();        // 1m ago
+    appendJsonl(path.join(evoDir, 'memory_graph.jsonl'), [
+      { type: 'MemoryGraphEvent', kind: 'hypothesis', id: 'h1', ts: oldTs, mutation: { id: 'mut_old' } },
+      { type: 'MemoryGraphEvent', kind: 'attempt',    id: 'a1', ts: oldTs, mutation: { id: 'mut_old' } },
+      { type: 'MemoryGraphEvent', kind: 'hypothesis', id: 'h2', ts: freshTs, mutation: { id: 'mut_fresh' } },
+      { type: 'MemoryGraphEvent', kind: 'attempt',    id: 'a2', ts: freshTs, mutation: { id: 'mut_fresh' } },
+    ]);
+
+    const observer = freshObserver();
+    const runs = observer.listRuns().data;
+    const oldRun = runs.find((r) => r.runId === 'mut_old');
+    const freshRun = runs.find((r) => r.runId === 'mut_fresh');
+
+    assert.equal(oldRun.status, 'abandoned', '8h-old attempt without outcome should be abandoned');
+    assert.equal(freshRun.status, 'running', 'recent attempt without outcome should still show running');
+  });
+
+  it('respects EVOLVER_RUN_STUCK_THRESHOLD_MS override', () => {
+    const evoDir = process.env.EVOLUTION_DIR;
+    const ts = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // 5m ago
+    appendJsonl(path.join(evoDir, 'memory_graph.jsonl'), [
+      { type: 'MemoryGraphEvent', kind: 'attempt', id: 'a', ts, mutation: { id: 'mut_x' } },
+    ]);
+
+    process.env.EVOLVER_RUN_STUCK_THRESHOLD_MS = '60000'; // 1 minute
+    try {
+      const observer = freshObserver();
+      const run = observer.listRuns().data.find((r) => r.runId === 'mut_x');
+      assert.equal(run.status, 'abandoned', '5m-old attempt should exceed 1m threshold');
+    } finally {
+      delete process.env.EVOLVER_RUN_STUCK_THRESHOLD_MS;
+    }
+  });
+
   it('lists assets and lineage without leaking secrets', () => {
     const gepDir = process.env.GEP_ASSETS_DIR;
     writeJson(path.join(gepDir, 'genes.json'), {
