@@ -295,10 +295,15 @@ async function loadInteractions() {
   $('hub-activity').innerHTML = '<p class="muted">Loading...</p>';
   $('agent-stream').innerHTML = '<p class="muted">Loading...</p>';
   try {
+    // Lifecycle is optional: not every build ships /webui/lifecycle (the
+    // observer-side module is only present when the proxy daemon is wired
+    // in). Treat a missing/erroring lifecycle endpoint as "no data" so the
+    // rest of the Hub Activity panel still renders instead of failing the
+    // whole tab with "Failed: Not found".
     const [callsResult, interactions, lifecycle] = await Promise.all([
       api('/webui/assets/calls?limit=500'),
       api('/webui/interactions?last=200'),
-      api('/webui/lifecycle?last=500'),
+      api('/webui/lifecycle?last=500').catch(() => ({ events: [] })),
     ]);
     const calls = callsResult.data || [];
     const proofs = interactions.proxySnapshots?.atpProofs?.body?.proofs || interactions.proxySnapshots?.atpProofs?.body || [];
