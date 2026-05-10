@@ -89,14 +89,23 @@ function renderLatestRun(runs) {
     return;
   }
   const run = list[0];
-  $('latest-run').innerHTML = kv([
-    ['Run ID', run.runId],
-    ['Status', '<span class="status-indicator ' + getStatusClass(run.status) + '"></span>' + run.status],
-    ['Selected Gene', run.selectedGeneId || '-'],
-    ['Validation', validationDisplay(run)],
-    ['Updated', formatTime(run.updatedAt)],
+  // Build the <dl> manually: only the Status value contains real HTML
+  // (the status-indicator span); other values are plain text and go
+  // through esc(). Avoids the kv()+partial-replace dance that left
+  // &quot; / &gt; un-restored and broke the indicator render. Cursor
+  // Bugbot Medium-severity finding on PR #532 -- see test guard for
+  // 'kv-then-partial-replace antipattern' in test/webuiServer.test.js.
+  const rows = [
+    ['Run ID', esc(run.runId)],
+    ['Status', '<span class="status-indicator ' + getStatusClass(run.status) + '"></span>' + esc(run.status)],
+    ['Selected Gene', esc(run.selectedGeneId || '-')],
+    ['Validation', esc(validationDisplay(run))],
+    ['Updated', esc(formatTime(run.updatedAt))],
     ['Requires confirmation', run.requiresConfirmation ? 'yes' : 'no'],
-  ]).replace(/&lt;span/g, '<span').replace(/&lt;\\/span&gt;/g, '</span>');
+  ];
+  $('latest-run').innerHTML = '<dl>' +
+    rows.map(([k, v]) => '<dt>' + esc(k) + '</dt><dd>' + v + '</dd>').join('') +
+    '</dl>';
 }
 
 function validationDisplay(run) {

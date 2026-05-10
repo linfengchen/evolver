@@ -72,4 +72,23 @@ describe('WebUiServer', () => {
     assert.equal(res.status, 404);
     assert.equal(body.error.code, 'RUN_NOT_FOUND');
   });
+
+  it('does not ship the kv-then-partial-replace HTML escape antipattern', async () => {
+    // Cursor Bugbot Medium-severity finding on PR #532: passing a raw
+    // <span> through kv() / esc() and then trying to undo the escape
+    // with .replace(/&lt;span/g, ...).replace(/&lt;\\/span&gt;/g, ...)
+    // leaves &quot; (from the class attribute) and &gt; (from the
+    // opening tag terminator) intact, so the status indicator never
+    // renders. The fix is to build the <dl> manually with esc()'d text
+    // and inject the indicator span as real HTML. This guard catches
+    // any future regression that brings the kv()+partial-replace dance
+    // back -- the bundled client JS must not contain it.
+    const res = await request(`${baseUrl}/app.js`);
+    assert.equal(res.status, 200);
+    assert.doesNotMatch(
+      res.body,
+      /\.replace\(\s*\/&lt;span/,
+      'kv-then-partial-replace antipattern reintroduced; rebuild the dl manually instead',
+    );
+  });
 });
