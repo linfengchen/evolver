@@ -1,9 +1,46 @@
 'use strict';
 
-const { describe, it } = require('node:test');
+const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const select = require('../src/evolve/pipeline/select');
+
+// IMPORTANT: selectAndMutate writes hypothesis/attempt entries to the memory
+// graph via src/gep/memoryGraph. Without redirecting EVOLUTION_DIR /
+// MEMORY_GRAPH_PATH to a tmp dir, every test run pollutes the developer's
+// real memory/evolution/memory_graph.jsonl with `agent: "test"` events that
+// never get an outcome (selector finds no gene), creating phantom "running"
+// pipelines in the WebUI forever. Mirrors the pattern in
+// test/memoryGraph.test.js and test/tttInspired.test.js.
+const REDIRECT_ENV_KEYS = [
+  'EVOLVER_REPO_ROOT',
+  'MEMORY_GRAPH_PATH',
+  'EVOLUTION_DIR',
+  'OPENCLAW_WORKSPACE',
+  'EVOLVER_SESSION_SCOPE',
+];
+
+function setupTmpEnv() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'select-test-'));
+  const origEnv = {};
+  for (const k of REDIRECT_ENV_KEYS) origEnv[k] = process.env[k];
+  process.env.MEMORY_GRAPH_PATH = path.join(tmpDir, 'memory_graph.jsonl');
+  process.env.EVOLUTION_DIR = tmpDir;
+  delete process.env.OPENCLAW_WORKSPACE;
+  delete process.env.EVOLVER_SESSION_SCOPE;
+  return { tmpDir, origEnv };
+}
+
+function teardownTmpEnv(tmpDir, origEnv) {
+  for (const [k, v] of Object.entries(origEnv)) {
+    if (v !== undefined) process.env[k] = v;
+    else delete process.env[k];
+  }
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* best-effort */ }
+}
 
 // ---------------------------------------------------------------------------
 // computeAdaptiveStrategyPolicy
@@ -72,6 +109,10 @@ describe('computeAdaptiveStrategyPolicy', () => {
 // selectAndMutate
 // ---------------------------------------------------------------------------
 describe('selectAndMutate', () => {
+  let tmpDir, origEnv;
+  beforeEach(() => { ({ tmpDir, origEnv } = setupTmpEnv()); });
+  afterEach(() => { teardownTmpEnv(tmpDir, origEnv); });
+
   const baseCtx = {
     genes: [],
     capsules: [],
@@ -142,5 +183,17 @@ describe('selectAndMutate', () => {
   it('mutation object is always present', async () => {
     const result = await select.selectAndMutate(baseCtx);
     assert.ok(result.mutation !== null && result.mutation !== undefined, 'mutation is mandatory');
+  });
+
+  // Regression: tests must not pollute the developer's real memory_graph.jsonl
+  // with `agent: "test"` events. If this assertion fires it means the env
+  // redirect above broke -- fix the tmp env, NOT the assertion. See B) hunt
+  // in the WebUI diagnose chat for context.
+  it('writes to the redirected tmp memory graph, not the real one', async () => {
+    await select.selectAndMutate(baseCtx);
+    const tmpGraphPath = process.env.MEMORY_GRAPH_PATH;
+    assert.ok(tmpGraphPath && tmpGraphPath.startsWith(os.tmpdir()),
+      'MEMORY_GRAPH_PATH must point inside os.tmpdir()');
+    assert.ok(fs.existsSync(tmpGraphPath), 'tmp memory_graph.jsonl should be created by the call');
   });
 });
