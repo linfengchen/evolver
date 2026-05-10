@@ -2,7 +2,7 @@
 
 const http = require('http');
 const { buildWebUiRoutes } = require('./routes');
-const { getIndexHtml, getClientJs, getStylesCss } = require('../client/static');
+const { getIndexHtml, getClientJs, getStylesCss, getVendorEcharts } = require('../client/static');
 
 const DEFAULT_WEBUI_PORT = 19821;
 const MAX_PORT_ATTEMPTS = 50;
@@ -43,6 +43,7 @@ class WebUiServer {
     if (req.method === 'GET' && url.pathname === '/') return sendText(res, 200, 'text/html; charset=utf-8', getIndexHtml());
     if (req.method === 'GET' && url.pathname === '/app.js') return sendText(res, 200, 'application/javascript; charset=utf-8', getClientJs());
     if (req.method === 'GET' && url.pathname === '/app.css') return sendText(res, 200, 'text/css; charset=utf-8', getStylesCss());
+    if (req.method === 'GET' && url.pathname === '/vendor/echarts.min.js') return sendText(res, 200, 'application/javascript; charset=utf-8', getVendorEcharts());
 
     const matched = matchRoute(this.routes, req.method, url.pathname);
     if (!matched) return sendJson(res, 404, { error: { code: 'NOT_FOUND', message: 'Not found', details: { path: url.pathname } } });

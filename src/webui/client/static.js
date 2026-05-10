@@ -1,5 +1,16 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
+let _vendorEchartsCache = null;
+function getVendorEcharts() {
+  if (!_vendorEchartsCache) {
+    _vendorEchartsCache = fs.readFileSync(path.join(__dirname, 'vendor', 'echarts.min.js'));
+  }
+  return _vendorEchartsCache;
+}
+
 function getIndexHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -8,7 +19,7 @@ function getIndexHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Evolver Web UI</title>
   <link rel="stylesheet" href="/app.css">
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <script src="/vendor/echarts.min.js"></script>
 </head>
 <body>
   <header>
@@ -1196,4 +1207,5 @@ module.exports = {
   getIndexHtml,
   getClientJs,
   getStylesCss,
+  getVendorEcharts,
 };
