@@ -39,11 +39,15 @@ async function readProxySnapshots(baseUrl) {
     atpPolicy: '/atp/policy',
     atpProofs: '/atp/proofs?limit=20',
   };
-  const out = {};
-  for (const [key, endpoint] of Object.entries(endpoints)) {
-    out[key] = await requestJson(baseUrl + endpoint);
-  }
-  return redactValue(out);
+  // Issue all proxy requests concurrently. Sequential await meant the
+  // worst-case (every endpoint timing out at 1500ms each) blocked the
+  // /webui/interactions response for ~12s; parallel keeps it ~1.5s.
+  const entries = await Promise.all(
+    Object.entries(endpoints).map(async ([key, endpoint]) =>
+      [key, await requestJson(baseUrl + endpoint)],
+    ),
+  );
+  return redactValue(Object.fromEntries(entries));
 }
 
 function requestJson(url) {

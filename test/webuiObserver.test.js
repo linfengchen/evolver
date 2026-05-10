@@ -105,6 +105,11 @@ describe('webui observer', () => {
     assert.equal(runs.length, 1);
     assert.equal(runs[0].selectedGeneId, 'gene_a');
     assert.equal(runs[0].requiresConfirmation, true);
+    // Regression: asset_call_log entries used to overwrite a successful event
+    // outcome with a hardcoded "running" status, so any run with asset calls
+    // appeared perpetually running. Ensure the event-derived terminal status
+    // wins instead.
+    assert.equal(runs[0].status, 'completed');
     assert.ok(detail.phases.some((phase) => phase.phase === 'asset_search' && phase.status === 'success'));
   });
 

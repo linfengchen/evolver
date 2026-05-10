@@ -162,9 +162,12 @@ function summaryFromEvent(event) {
 
 function summaryFromAssetCall(call) {
   if (!call.run_id) return null;
+  // Asset-call entries are historical evidence and do not carry a definitive
+  // run status. Authoritative status comes from cycle/event/pipelineEvent
+  // sources; leaving status undefined here lets mergeRun keep whatever those
+  // sources set (or 'unknown' if this is the only source for the run).
   return {
     runId: String(call.run_id),
-    status: 'running',
     updatedAt: toIso(call.timestamp),
     requiresConfirmation: isConfirmationAction(call.action),
   };
