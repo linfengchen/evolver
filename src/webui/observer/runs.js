@@ -15,6 +15,14 @@ const PHASE_ORDER = [
   'confirmation',
 ];
 
+// A run that wrote `attempt` but never produced an `outcome` is stuck. We
+// can't tell apart "still running" from "never going to finish" purely from
+// memory_graph alone, so we use a wall-clock threshold: anything older than
+// this with no outcome is reclassified `abandoned`. This stops phantom
+// "running" rows piling up after crashes, kills, or selectors that bailed
+// out early (e.g. no matching gene found). Override via env if needed.
+const STUCK_THRESHOLD_MS = parseInt(process.env.EVOLVER_RUN_STUCK_THRESHOLD_MS, 10) || (30 * 60 * 1000);
+
 function listRuns(query = {}) {
   const runs = buildRuns().sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt));
   return paginate(runs, query);
@@ -92,10 +100,19 @@ function buildRuns() {
   for (const call of assetCalls) mergeRun(runs, summaryFromAssetCall(call));
   for (const event of pipelineEvents) mergeRun(runs, summaryFromPipelineEvent(event));
 
+  const now = Date.now();
   return Array.from(runs.values()).map((run) => ({
     ...run,
+    status: maybeAbandon(run, now),
     requiresConfirmation: Boolean(run.requiresConfirmation),
   }));
+}
+
+function maybeAbandon(run, now) {
+  if (run.status !== 'running' || run.finishedAt) return run.status;
+  const t = timestampOf(run.updatedAt);
+  if (!t) return run.status;
+  return now - t > STUCK_THRESHOLD_MS ? 'abandoned' : 'running';
 }
 
 function addCycleRun(runs, cycle, solidify) {

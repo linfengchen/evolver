@@ -113,6 +113,41 @@ describe('webui observer', () => {
     assert.ok(detail.phases.some((phase) => phase.phase === 'asset_search' && phase.status === 'success'));
   });
 
+  it('reclassifies stale "running" runs as abandoned', () => {
+    const evoDir = process.env.EVOLUTION_DIR;
+    const oldTs = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(); // 8h ago
+    const freshTs = new Date(Date.now() - 60 * 1000).toISOString();        // 1m ago
+    appendJsonl(path.join(evoDir, 'pipeline_events.jsonl'), [
+      { run_id: 'run-old',   phase: 'evolve.run', status: 'running', started_at: oldTs,   timestamp: oldTs },
+      { run_id: 'run-fresh', phase: 'evolve.run', status: 'running', started_at: freshTs, timestamp: freshTs },
+    ]);
+
+    const observer = freshObserver();
+    const runs = observer.listRuns().data;
+    const oldRun = runs.find((r) => r.runId === 'run-old');
+    const freshRun = runs.find((r) => r.runId === 'run-fresh');
+
+    assert.equal(oldRun.status, 'abandoned', '8h-old running run with no finishedAt should be abandoned');
+    assert.equal(freshRun.status, 'running', 'recent running run should still show running');
+  });
+
+  it('respects EVOLVER_RUN_STUCK_THRESHOLD_MS override', () => {
+    const evoDir = process.env.EVOLUTION_DIR;
+    const ts = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // 5m ago
+    appendJsonl(path.join(evoDir, 'pipeline_events.jsonl'), [
+      { run_id: 'run-x', phase: 'evolve.run', status: 'running', started_at: ts, timestamp: ts },
+    ]);
+
+    process.env.EVOLVER_RUN_STUCK_THRESHOLD_MS = '60000'; // 1 minute
+    try {
+      const observer = freshObserver();
+      const run = observer.listRuns().data.find((r) => r.runId === 'run-x');
+      assert.equal(run.status, 'abandoned', '5m-old running run should exceed 1m threshold');
+    } finally {
+      delete process.env.EVOLVER_RUN_STUCK_THRESHOLD_MS;
+    }
+  });
+
   it('lists assets and lineage without leaking secrets', () => {
     const gepDir = process.env.GEP_ASSETS_DIR;
     writeJson(path.join(gepDir, 'genes.json'), {
