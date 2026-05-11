@@ -35,8 +35,23 @@ function normalizePipelineEvent(event) {
     asset_refs: arrayOfObjects(input.asset_refs),
     validation_refs: arrayOfObjects(input.validation_refs),
     requires_confirmation: Boolean(input.requires_confirmation),
+    // Optional W3C-style trace identifiers for cross-referencing with
+    // obs_spans.jsonl. Older rows that pre-date observability wiring will
+    // simply have these fields absent (null), which the WebUI tolerates.
+    trace_id: traceIdOrNull(input.trace_id),
+    span_id: spanIdOrNull(input.span_id),
+    parent_span_id: spanIdOrNull(input.parent_span_id),
+    duration_ms: Number.isFinite(input.duration_ms) ? Math.max(0, Math.round(input.duration_ms)) : null,
     timestamp: input.timestamp || new Date().toISOString(),
   });
+}
+
+function traceIdOrNull(value) {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value) ? value : null;
+}
+
+function spanIdOrNull(value) {
+  return typeof value === 'string' && /^[0-9a-f]{16}$/.test(value) ? value : null;
 }
 
 function stringOrNull(value) {

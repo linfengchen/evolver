@@ -11,6 +11,17 @@ const { ensureAssetFiles } = require('./gep/assetStore');
 const _shield = require('./gep/shield');
 const _integrity = require('./gep/integrityCheck');
 const _obs = require('./observability');
+const { logPipelineEvent } = require('./webui/observer/pipelineEvents');
+
+function safeLogPipelineEvent(payload) {
+  try {
+    logPipelineEvent(payload);
+  } catch (err) {
+    // Observability sink failures must never break the evolve pipeline.
+    // [evolve] prefix per c4 §2 for grep.
+    process.stderr.write(`[evolve] logPipelineEvent failed: ${err && err.message ? err.message : err}\n`);
+  }
+}
 
 _shield.activate();
 _integrity.verify();
@@ -329,51 +340,123 @@ async function run() {
 
     const stageEvent = (name, attrs = {}) => _obs.addExportableEvent(span, name, attrs);
 
+    // Single pipeline-event-per-stage emitter. Writes to pipeline_events.jsonl
+    // so the existing WebUI Pipelines tab gets phase progress without needing
+    // to read obs_spans (which holds full prompt text). All events carry the
+    // run-level trace_id; per-stage span_id is the parent's because at this
+    // layer we don't open a dedicated child span for each stage (those live
+    // inside the stage modules in future slices).
+    const recordStage = (phase, started, ok, extras = {}) => {
+      const finishedAt = new Date().toISOString();
+      safeLogPipelineEvent({
+        run_id: ctx.cycleId || null,
+        cycle_id: ctx.cycleId || null,
+        phase,
+        status: ok ? 'success' : 'failed',
+        started_at: started,
+        finished_at: finishedAt,
+        duration_ms: Date.now() - new Date(started).getTime(),
+        trace_id: span.traceId,
+        span_id: span.spanId,
+        summary: extras.summary || '',
+      });
+    };
+
     let stageStart = Date.now();
-    ctx = await _collect.collectContext(ctx);
+    let stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      ctx = await _collect.collectContext(ctx);
+    } catch (err) {
+      recordStage('evolve.collect', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     const initialUserPrompt = getCurrentSessionInitialPrompt();
     ctx = { ...ctx, scanTime: Date.now() - startTime, initialUserPrompt, traceId: span.traceId };
     stageEvent('evolve.collect.done', { duration_ms: Date.now() - stageStart });
+    recordStage('evolve.collect', stageStartedAt, true);
     if (initialUserPrompt) {
       _obs.setExportableAttribute(span, 'initial_user_prompt.length', initialUserPrompt.length);
       _obs.setLocalOnlyPayload(span, 'initial_user_prompt', initialUserPrompt);
     }
 
     stageStart = Date.now();
-    ctx = await _signals.extractSignalsStage({ ...ctx, lastHubFetchMs: _lastHubFetchMs });
+    stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      ctx = await _signals.extractSignalsStage({ ...ctx, lastHubFetchMs: _lastHubFetchMs });
+    } catch (err) {
+      recordStage('evolve.signals', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     stageEvent('evolve.signals.done', {
       duration_ms: Date.now() - stageStart,
       signal_count: Array.isArray(ctx.signals) ? ctx.signals.length : 0,
     });
+    recordStage('evolve.signals', stageStartedAt, true, {
+      summary: `signals=${Array.isArray(ctx.signals) ? ctx.signals.length : 0}`,
+    });
 
     stageStart = Date.now();
-    ctx = await _hub.hubCoordinate(ctx);
+    stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      ctx = await _hub.hubCoordinate(ctx);
+    } catch (err) {
+      recordStage('evolve.hub', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     if (ctx.lastHubFetchMs > _lastHubFetchMs) _lastHubFetchMs = ctx.lastHubFetchMs;
     stageEvent('evolve.hub.done', {
       duration_ms: Date.now() - stageStart,
       hub_hit: !!(ctx.hubHit && ctx.hubHit.hit),
       active_task: !!ctx.activeTask,
     });
+    recordStage('evolve.hub', stageStartedAt, true, {
+      summary: `hub_hit=${!!(ctx.hubHit && ctx.hubHit.hit)} active_task=${!!ctx.activeTask}`,
+    });
 
     stageStart = Date.now();
-    ctx = await _enrich.enrich({ ...ctx, IS_RANDOM_DRIFT, IS_REVIEW_MODE, IS_DRY_RUN, AGENT_NAME });
+    stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      ctx = await _enrich.enrich({ ...ctx, IS_RANDOM_DRIFT, IS_REVIEW_MODE, IS_DRY_RUN, AGENT_NAME });
+    } catch (err) {
+      recordStage('evolve.enrich', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     IS_RANDOM_DRIFT = !!ctx.IS_RANDOM_DRIFT;
     stageEvent('evolve.enrich.done', {
       duration_ms: Date.now() - stageStart,
       random_drift: !!IS_RANDOM_DRIFT,
     });
+    recordStage('evolve.enrich', stageStartedAt, true, {
+      summary: `drift=${IS_RANDOM_DRIFT}`,
+    });
 
     stageStart = Date.now();
-    ctx = await _select.selectAndMutate(ctx);
+    stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      ctx = await _select.selectAndMutate(ctx);
+    } catch (err) {
+      recordStage('evolve.select', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     stageEvent('evolve.select.done', {
       duration_ms: Date.now() - stageStart,
       selected_gene_id: ctx.selectedGene && ctx.selectedGene.id ? ctx.selectedGene.id : null,
       selector: ctx.selector || null,
     });
+    recordStage('evolve.select', stageStartedAt, true, {
+      summary: `gene=${ctx.selectedGene && ctx.selectedGene.id ? ctx.selectedGene.id : '(none)'} selector=${ctx.selector || '(none)'}`,
+    });
 
     stageStart = Date.now();
-    await _dispatch.dispatch(ctx);
+    stageStartedAt = new Date(stageStart).toISOString();
+    try {
+      await _dispatch.dispatch(ctx);
+    } catch (err) {
+      recordStage('evolve.dispatch', stageStartedAt, false, { summary: err && err.message ? err.message : '' });
+      throw err;
+    }
     stageEvent('evolve.dispatch.done', { duration_ms: Date.now() - stageStart });
+    recordStage('evolve.dispatch', stageStartedAt, true);
   });
 }
 
