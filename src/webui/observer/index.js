@@ -10,6 +10,7 @@ const { listSkills } = require('./skills');
 const { getObserverPaths } = require('./paths');
 const { tailText } = require('./jsonl');
 const { redactText } = require('./redact');
+const { listObservabilitySpans, getObservabilityTrace } = require('./observability');
 
 function getEvolverLog(query = {}) {
   const tail = query.tail || 200;
@@ -34,4 +35,6 @@ module.exports = {
   getMemoryGraph,
   listSkills,
   getEvolverLog,
+  listObservabilitySpans,
+  getObservabilityTrace,
 };

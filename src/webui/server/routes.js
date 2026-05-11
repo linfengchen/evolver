@@ -24,6 +24,12 @@ function buildWebUiRoutes() {
     'GET /webui/memory-graph': async ({ query }) => ({ body: observer.getMemoryGraph(query) }),
     'GET /webui/skills': async () => ({ body: observer.listSkills() }),
     'GET /webui/logs/evolver': async ({ query }) => ({ body: observer.getEvolverLog(query) }),
+    'GET /webui/observability/spans': async ({ query }) => ({ body: observer.listObservabilitySpans(query) }),
+    'GET /webui/observability/traces/:traceId': async ({ params }) => {
+      const trace = observer.getObservabilityTrace(params.traceId);
+      if (!trace) throw httpError(404, 'TRACE_NOT_FOUND', 'Trace not found');
+      return { body: trace };
+    },
   };
 }
 
