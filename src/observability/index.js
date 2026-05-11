@@ -161,6 +161,7 @@ function stripLocalOnlyForExport(record) {
 }
 
 function startSpan(name, options = {}) {
+  ensureOtlpInitialized();
   const handle = buildSpanHandle(name, options);
   if (options.exportable) setExportableAttributes(handle, options.exportable);
   if (options.localOnly) {
@@ -169,6 +170,28 @@ function startSpan(name, options = {}) {
     }
   }
   return handle;
+}
+
+// Lazy OTLP setup: first startSpan() call checks the env and, if enabled,
+// initializes the optional exporter exactly once. We do not auto-init at
+// module load time because tests need to control the env per-case. If a
+// caller (test or production) has already registered an exporter, we skip
+// the env-based auto-init to keep the explicit registration authoritative.
+let otlpInitialized = false;
+function ensureOtlpInitialized() {
+  if (otlpInitialized) return;
+  otlpInitialized = true;
+  if (otlpExporter) return;
+  try {
+    const { setupOtlpFromEnv } = require('./otlp');
+    setupOtlpFromEnv(module.exports);
+  } catch (err) {
+    logFacadeError('otlp.setup', err);
+  }
+}
+
+function resetOtlpInitialized() {
+  otlpInitialized = false;
 }
 
 function withSpan(name, options, fn) {
@@ -234,4 +257,5 @@ module.exports = {
   registerOtlpExporter,
   stripLocalOnlyForExport,
   shutdown,
+  resetOtlpInitialized,
 };
