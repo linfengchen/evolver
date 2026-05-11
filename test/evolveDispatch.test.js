@@ -1,13 +1,35 @@
 'use strict';
 
-const { describe, it, mock, before, after } = require('node:test');
+const { describe, it, mock, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // ---------------------------------------------------------------------------
 // Inline stubs for all external dependencies of dispatch.js
 // ---------------------------------------------------------------------------
 
 const mockMods = {};
+
+// Observability writes obs_spans.jsonl to the real EVOLUTION_DIR; isolate it
+// to a tmp dir per test so dispatch tests never pollute the repo workspace.
+let _obsTmpDir;
+let _savedEvolutionDir;
+
+beforeEach(() => {
+  _obsTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'evolveDispatch-obs-'));
+  _savedEvolutionDir = process.env.EVOLUTION_DIR;
+  process.env.EVOLUTION_DIR = _obsTmpDir;
+});
+
+afterEach(() => {
+  if (_savedEvolutionDir === undefined) delete process.env.EVOLUTION_DIR;
+  else process.env.EVOLUTION_DIR = _savedEvolutionDir;
+  try { fs.rmSync(_obsTmpDir, { recursive: true, force: true }); } catch {
+    // best-effort tmpdir cleanup
+  }
+});
 
 before(() => {
   const Module = require('module');

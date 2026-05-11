@@ -10,6 +10,7 @@ const { getRepoRoot, getMemoryDir, getAgentSessionsDir } = require('./gep/paths'
 const { ensureAssetFiles } = require('./gep/assetStore');
 const _shield = require('./gep/shield');
 const _integrity = require('./gep/integrityCheck');
+const _obs = require('./observability');
 
 _shield.activate();
 _integrity.verify();
@@ -287,61 +288,93 @@ function checkAndAutoUpdate() {
 async function run() {
   _shield.check();
 
-  let ctx = await _guards.runGuards({});
-  if (ctx.abort) return;
+  return _obs.withSpan('evolve.run', {}, async (span) => {
+    let ctx = await _guards.runGuards({});
+    if (ctx.abort) {
+      _obs.setExportableAttribute(span, 'aborted', true);
+      return;
+    }
 
-  const { bridgeEnabled } = ctx;
+    const { bridgeEnabled } = ctx;
+    const cycleId = ctx.cycleId || null;
 
-  const startTime = Date.now();
-  verbose('--- evolve.run() start ---');
-  verbose('Config: EVOLVE_STRATEGY=' + (process.env.EVOLVE_STRATEGY || '(default)') + ' EVOLVE_BRIDGE=' + (process.env.EVOLVE_BRIDGE || '(default)') + ' EVOLVE_LOOP=' + (process.env.EVOLVE_LOOP || 'false'));
-  verbose('Config: EVOLVER_IDLE_FETCH_INTERVAL_MS=' + (process.env.EVOLVER_IDLE_FETCH_INTERVAL_MS || '(default 1800000)') + ' RANDOM_DRIFT=' + (process.env.RANDOM_DRIFT || 'false'));
-  console.log('Scanning session logs...');
+    _obs.setExportableAttributes(span, {
+      cycle_id: cycleId,
+      bridge_enabled: !!bridgeEnabled,
+      strategy_env: process.env.EVOLVE_STRATEGY || null,
+      review_mode: !!IS_REVIEW_MODE,
+      dry_run: !!IS_DRY_RUN,
+    });
 
-  // Ensure all GEP asset files exist before any operation.
-  // This prevents "No such file or directory" errors when external tools
-  // (grep, cat, etc.) reference optional append-only files like genes.jsonl.
-  try { ensureAssetFiles(); } catch (e) {
-    console.error(`[AssetInit] ensureAssetFiles failed (non-fatal): ${e.message}`);
-  }
+    const startTime = Date.now();
+    verbose('--- evolve.run() start ---');
+    verbose('Config: EVOLVE_STRATEGY=' + (process.env.EVOLVE_STRATEGY || '(default)') + ' EVOLVE_BRIDGE=' + (process.env.EVOLVE_BRIDGE || '(default)') + ' EVOLVE_LOOP=' + (process.env.EVOLVE_LOOP || 'false'));
+    verbose('Config: EVOLVER_IDLE_FETCH_INTERVAL_MS=' + (process.env.EVOLVER_IDLE_FETCH_INTERVAL_MS || '(default 1800000)') + ' RANDOM_DRIFT=' + (process.env.RANDOM_DRIFT || 'false'));
+    console.log('Scanning session logs...');
 
-  // Maintenance: Clean up old logs to keep directory scan fast
-  if (!IS_DRY_RUN) {
-    performMaintenance();
-  } else {
-    console.log('[Maintenance] Skipped (dry-run mode).');
-  }
+    // Ensure all GEP asset files exist before any operation.
+    // This prevents "No such file or directory" errors when external tools
+    // (grep, cat, etc.) reference optional append-only files like genes.jsonl.
+    try { ensureAssetFiles(); } catch (e) {
+      console.error(`[AssetInit] ensureAssetFiles failed (non-fatal): ${e.message}`);
+    }
 
-  _guards.checkRepairLoopCircuitBreaker();
+    if (!IS_DRY_RUN) {
+      performMaintenance();
+    } else {
+      console.log('[Maintenance] Skipped (dry-run mode).');
+    }
 
-  ctx = await _collect.collectContext(ctx);
-  // Inject run-level values not available inside collectContext itself.
-  ctx = { ...ctx, scanTime: Date.now() - startTime, initialUserPrompt: getCurrentSessionInitialPrompt() };
+    _guards.checkRepairLoopCircuitBreaker();
 
-  // Stage 3: load GEP assets (genes/capsules/events), extract signals from transcripts,
-  // inject dormant-hypothesis / retry-context / curriculum signals, compute idle-gating.
-  ctx = await _signals.extractSignalsStage({ ...ctx, lastHubFetchMs: _lastHubFetchMs });
+    const stageEvent = (name, attrs = {}) => _obs.addExportableEvent(span, name, attrs);
 
-  // Stage 4: generate proactive questions, fetch Hub tasks, run validator, process
-  // overdue tasks / hub events / worker pool, claim best task.
-  ctx = await _hub.hubCoordinate(ctx);
-  // Persist updated fetch timestamp for idle-gating across cycles.
-  if (ctx.lastHubFetchMs > _lastHubFetchMs) _lastHubFetchMs = ctx.lastHubFetchMs;
+    let stageStart = Date.now();
+    ctx = await _collect.collectContext(ctx);
+    const initialUserPrompt = getCurrentSessionInitialPrompt();
+    ctx = { ...ctx, scanTime: Date.now() - startTime, initialUserPrompt, traceId: span.traceId };
+    stageEvent('evolve.collect.done', { duration_ms: Date.now() - stageStart });
+    if (initialUserPrompt) {
+      _obs.setExportableAttribute(span, 'initial_user_prompt.length', initialUserPrompt.length);
+      _obs.setLocalOnlyPayload(span, 'initial_user_prompt', initialUserPrompt);
+    }
 
-  // Stage 5: record memory graph outcome+snapshot, build previews, hub search,
-  // ATP auto-buy, memory advice, reflection, failed capsules, heartbeat hints,
-  // shared knowledge, force update, heartbeat actions, local plateau detection.
-  // IS_RANDOM_DRIFT may be set true inside enrich; sync back to module var after.
-  ctx = await _enrich.enrich({ ...ctx, IS_RANDOM_DRIFT, IS_REVIEW_MODE, IS_DRY_RUN, AGENT_NAME });
-  IS_RANDOM_DRIFT = !!ctx.IS_RANDOM_DRIFT;
+    stageStart = Date.now();
+    ctx = await _signals.extractSignalsStage({ ...ctx, lastHubFetchMs: _lastHubFetchMs });
+    stageEvent('evolve.signals.done', {
+      duration_ms: Date.now() - stageStart,
+      signal_count: Array.isArray(ctx.signals) ? ctx.signals.length : 0,
+    });
 
-  // Stage 6: select gene + capsule, compute strategy policy and personality, build mutation,
-  // record hypothesis and attempt in memory graph (both blocking — refuses to evolve on failure).
-  ctx = await _select.selectAndMutate(ctx);
+    stageStart = Date.now();
+    ctx = await _hub.hubCoordinate(ctx);
+    if (ctx.lastHubFetchMs > _lastHubFetchMs) _lastHubFetchMs = ctx.lastHubFetchMs;
+    stageEvent('evolve.hub.done', {
+      duration_ms: Date.now() - stageStart,
+      hub_hit: !!(ctx.hubHit && ctx.hubHit.hit),
+      active_task: !!ctx.activeTask,
+    });
 
-  // Stage 7: write solidify state, build GEP prompt, spawn executor via sessions_spawn (bridge)
-  // or print to stdout (loop mode). Returns early without output when idle-gated.
-  await _dispatch.dispatch(ctx);
+    stageStart = Date.now();
+    ctx = await _enrich.enrich({ ...ctx, IS_RANDOM_DRIFT, IS_REVIEW_MODE, IS_DRY_RUN, AGENT_NAME });
+    IS_RANDOM_DRIFT = !!ctx.IS_RANDOM_DRIFT;
+    stageEvent('evolve.enrich.done', {
+      duration_ms: Date.now() - stageStart,
+      random_drift: !!IS_RANDOM_DRIFT,
+    });
+
+    stageStart = Date.now();
+    ctx = await _select.selectAndMutate(ctx);
+    stageEvent('evolve.select.done', {
+      duration_ms: Date.now() - stageStart,
+      selected_gene_id: ctx.selectedGene && ctx.selectedGene.id ? ctx.selectedGene.id : null,
+      selector: ctx.selector || null,
+    });
+
+    stageStart = Date.now();
+    await _dispatch.dispatch(ctx);
+    stageEvent('evolve.dispatch.done', { duration_ms: Date.now() - stageStart });
+  });
 }
 
 module.exports = {

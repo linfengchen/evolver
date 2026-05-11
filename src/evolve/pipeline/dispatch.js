@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 const { getLastEventId } = require('../../gep/assetStore');
 const { buildGepPrompt, buildReusePrompt, buildHubMatchedBlock } = require('../../gep/prompt');
@@ -8,6 +9,11 @@ const { readStateForSolidify, writeStateForSolidify } = require('../../gep/solid
 const { clip, writePromptArtifact, renderSessionsSpawnCall } = require('../../gep/bridge');
 const { getEvolutionDir, getRepoRoot } = require('../../gep/paths');
 const { tryExplore } = require('../../gep/explore');
+const _obs = require('../../observability');
+
+function sha256Hex(text) {
+  return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
+}
 
 const MAX_EXEC_BUFFER = 10 * 1024 * 1024;
 
@@ -46,6 +52,18 @@ async function dispatch(ctx) {
   } = ctx;
 
   const REPO_ROOT = getRepoRoot();
+
+  // Observability: child span of evolve.run (inherits trace via ALS). Errors
+  // bubble to the parent span; we only need to close on the happy paths.
+  const dispatchSpan = _obs.startSpan('evolve.dispatch', {
+    exportable: {
+      cycle_id: cycleId || null,
+      cycle_num: cycleNum || null,
+      bridge_enabled: !!bridgeEnabled,
+      gene_id: selectedGene && selectedGene.id ? selectedGene.id : null,
+      selector: selector || null,
+    },
+  });
 
   // Solidify state: capture minimal, auditable context for post-patch validation + asset write.
   // This enforces strict protocol closure after patch application.
@@ -175,6 +193,8 @@ async function dispatch(ctx) {
       console.error('[Explore] Error during idle exploration: ' + exploreErr.message);
     }
     console.log('[IdleGating] Idle cycle complete. Prompt generation and bridge spawning skipped.');
+    _obs.setExportableAttribute(dispatchSpan, 'skipped_idle', true);
+    _obs.endSpan(dispatchSpan);
     return;
   }
 
@@ -298,6 +318,17 @@ ${sharedKnowledgeContext}
         initialUserPrompt,
       });
 
+  _obs.setExportableAttributes(dispatchSpan, {
+    is_direct_reuse: !!isDirectReuse,
+    hub_match_mode: isDirectReuse ? 'direct' : (hubMatchedBlock ? 'reference' : 'none'),
+    prompt_length: prompt.length,
+    prompt_sha256: sha256Hex(prompt),
+  });
+  _obs.setLocalOnlyPayload(dispatchSpan, 'gep_prompt_text', prompt);
+  _obs.addExportableEvent(dispatchSpan, 'evolve.dispatch.prompt_built', {
+    prompt_length: prompt.length,
+  });
+
   // Optional: emit a compact thought process block for wrappers (noise-controlled).
   const emitThought = String(process.env.EVOLVE_EMIT_THOUGHT_PROCESS || '').toLowerCase() === 'true';
   if (emitThought) {
@@ -376,10 +407,19 @@ ${sharedKnowledgeContext}
       console.log('\n[PROMPT OUTPUT] (EVOLVE_PRINT_PROMPT=true)');
       console.log(prompt);
     }
+    _obs.addExportableEvent(dispatchSpan, 'bridge.sessions_spawn', {
+      label: `gep_bridge_${cycleNum}`,
+      agent_id: AGENT_NAME,
+      prompt_artifact_path: artifact && artifact.promptPath ? artifact.promptPath : null,
+      run_id: runId,
+    });
   } else {
     console.log(prompt);
     console.log('\n[SOLIDIFY REQUIRED] After applying the patch and validations, run: node index.js solidify');
+    _obs.addExportableEvent(dispatchSpan, 'bridge.stdout', { print_prompt: !!printPrompt });
   }
+
+  _obs.endSpan(dispatchSpan);
 }
 
 module.exports = { dispatch };
