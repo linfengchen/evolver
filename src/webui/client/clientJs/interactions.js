@@ -93,12 +93,12 @@ function renderHubActivitySummary(s) {
   const healthCls = s.heartbeatHealthPct == null ? '' : s.heartbeatHealthPct >= 95 ? 'success' : s.heartbeatHealthPct >= 70 ? 'pending' : 'failed';
   const hitCls = s.assetHitRate == null ? '' : s.assetHitRate >= 50 ? 'success' : s.assetHitRate >= 20 ? 'pending' : 'failed';
   $('hub-activity-summary').innerHTML =
-    statBox('Heartbeat health', s.heartbeatHealthPct == null ? '—' : s.heartbeatHealthPct + '%', healthCls) +
-    statBox('Asset hit rate', s.assetHitRate == null ? '—' : s.assetHitRate + '%', hitCls) +
-    statBox('Events (24h)', String(s.last24h ?? 0)) +
-    statBox('Latency p50/p95', s.latencyP50 == null ? '—' : (s.latencyP50 + ' / ' + (s.latencyP95 ?? '—') + ' ms')) +
-    statBox('Last hello OK', formatTime(s.lastHelloOk)) +
-    statBox('Last heartbeat OK', formatTime(s.lastHeartbeatOk));
+    statBox(t('interactions.stat.heartbeatHealth'), s.heartbeatHealthPct == null ? '—' : s.heartbeatHealthPct + '%', healthCls) +
+    statBox(t('interactions.stat.assetHitRate'), s.assetHitRate == null ? '—' : s.assetHitRate + '%', hitCls) +
+    statBox(t('interactions.stat.events24h'), String(s.last24h ?? 0)) +
+    statBox(t('interactions.stat.latency'), s.latencyP50 == null ? '—' : (s.latencyP50 + ' / ' + (s.latencyP95 ?? '—') + ' ms')) +
+    statBox(t('interactions.stat.lastHelloOk'), formatTime(s.lastHelloOk)) +
+    statBox(t('interactions.stat.lastHeartbeatOk'), formatTime(s.lastHeartbeatOk));
 }
 
 function bindHubActivityFilters() {
@@ -134,7 +134,7 @@ function renderHubActivityTable() {
 
   if (!filtered.length) {
     $('hub-activity').innerHTML = HUB_ACTIVITY_STATE.events.length
-      ? '<p class="muted">No events match the current filters.</p>'
+      ? '<p class="muted">' + esc(t('interactions.empty.filtered')) + '</p>'
       : hubEmptyHint(HUB_ACTIVITY_STATE.hasProxy);
     return;
   }
@@ -145,9 +145,9 @@ function renderHubActivityTable() {
     const cls = ok ? 'ok' : fail ? 'fail' : 'neutral';
     return '<tr class="' + cls + '">' +
       '<td>' + esc(formatTime(e.time)) + '</td>' +
-      '<td><span class="pill ' + esc(e.layer) + '">' + esc(e.layer) + '</span></td>' +
-      '<td><span class="pill ' + esc(e.kind || '-') + '">' + esc(e.kind || '-') + '</span></td>' +
-      '<td><span class="status-indicator ' + (ok ? 'success' : fail ? 'failed' : 'unknown') + '"></span>' + esc(e.outcome || '-') + '</td>' +
+      '<td><span class="pill ' + esc(e.layer) + '">' + esc(tAction(e.layer)) + '</span></td>' +
+      '<td><span class="pill ' + esc(e.kind || '-') + '">' + esc(tAction(e.kind) || '-') + '</span></td>' +
+      '<td><span class="status-indicator ' + (ok ? 'success' : fail ? 'failed' : 'unknown') + '"></span>' + esc(tStatus(e.outcome) || '-') + '</td>' +
       '<td>' + (e.statusCode ?? '—') + '</td>' +
       '<td>' + (e.latencyMs == null ? '—' : e.latencyMs + ' ms') + '</td>' +
       '<td class="lifecycle-error">' + esc(e.title || '') + (e.meta ? ' <span class="muted small">' + esc(e.meta) + '</span>' : '') + (e.error ? ' <span class="status-failed">' + esc(e.error) + '</span>' : '') + '</td>' +
@@ -155,15 +155,23 @@ function renderHubActivityTable() {
   }).join('');
 
   $('hub-activity').innerHTML = '<table class="data-table lifecycle-table">' +
-    '<thead><tr><th>Time</th><th>Layer</th><th>Kind</th><th>Outcome</th><th>Status</th><th>Latency</th><th>Detail</th></tr></thead>' +
+    '<thead><tr>' +
+      '<th>' + esc(t('interactions.col.time')) + '</th>' +
+      '<th>' + esc(t('interactions.col.layer')) + '</th>' +
+      '<th>' + esc(t('interactions.col.kind')) + '</th>' +
+      '<th>' + esc(t('interactions.col.outcome')) + '</th>' +
+      '<th>' + esc(t('interactions.col.status')) + '</th>' +
+      '<th>' + esc(t('interactions.col.latency')) + '</th>' +
+      '<th>' + esc(t('interactions.col.detail')) + '</th>' +
+    '</tr></thead>' +
     '<tbody>' + rows + '</tbody></table>';
 }
 
 function hubEmptyHint(hasProxy) {
   if (hasProxy) {
-    return '<p class="muted">Proxy is running but no Hub events recorded yet — the next heartbeat tick will populate this table.</p>';
+    return '<p class="muted">' + esc(t('interactions.empty.proxyRunning')) + '</p>';
   }
-  return '<p class="muted">No Hub activity recorded yet. Hello/heartbeat/ATP events are produced by the proxy daemon — start it with <code>evolver run</code> (or <code>evolver fetch &lt;asset&gt;</code> to log a one-shot fetch).</p>';
+  return '<p class="muted">' + t('interactions.empty.noProxy') + '</p>';
 }
 
 function renderAgentStream(mailbox, sessions, dms) {
@@ -194,7 +202,7 @@ function renderAgentStream(mailbox, sessions, dms) {
   }));
 
   if (!items.length) {
-    $('agent-stream').innerHTML = '<p class="muted">No agent interactions yet.</p>';
+    $('agent-stream').innerHTML = '<p class="muted">' + esc(t('interactions.empty.noAgent')) + '</p>';
     return;
   }
   items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
@@ -277,23 +285,23 @@ function bucketByDay(items, days) {
 
 function renderProxySnapshots(snapshots) {
   if (!snapshots || !Object.keys(snapshots).length) {
-    $('proxy-snapshots').innerHTML = '<p class="muted snapshot-empty">Proxy not running. Start <code>evolver run</code> to enable live snapshots.</p>';
+    $('proxy-snapshots').innerHTML = '<p class="muted snapshot-empty">' + t('interactions.empty.proxyNotRunning') + '</p>';
     return;
   }
   $('proxy-snapshots').innerHTML = Object.entries(snapshots).map(([key, snap]) => {
     const ok = snap?.ok;
     const dot = '<span class="status-indicator ' + (ok ? 'status-success' : 'status-failed') + '"></span>';
     const detail = ok && snap.body
-      ? (Array.isArray(snap.body) ? snap.body.length + ' items' : Object.keys(snap.body).length + ' fields')
-      : (snap?.error || 'unavailable');
+      ? (Array.isArray(snap.body) ? snap.body.length + ' ' + t('interactions.snapshot.items') : Object.keys(snap.body).length + ' ' + t('interactions.snapshot.fields'))
+      : (snap?.error || t('interactions.snapshot.unavailable'));
     return '<div class="snapshot-card"><div>' + dot + '<strong>' + esc(key) + '</strong></div>' +
       '<div class="muted small">' + esc(detail) + '</div></div>';
   }).join('');
 }
 
 async function loadInteractions() {
-  $('hub-activity').innerHTML = '<p class="muted">Loading...</p>';
-  $('agent-stream').innerHTML = '<p class="muted">Loading...</p>';
+  $('hub-activity').innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
+  $('agent-stream').innerHTML = '<p class="muted">' + esc(t('common.loading')) + '</p>';
   try {
     // Lifecycle is optional: not every build ships /webui/lifecycle (the
     // observer-side module is only present when the proxy daemon is wired
@@ -324,7 +332,7 @@ async function loadInteractions() {
     renderInteractionCharts(calls, Array.isArray(proofs) ? proofs : [], mailbox);
     renderProxySnapshots(interactions.proxySnapshots);
   } catch (err) {
-    $('hub-activity').innerHTML = '<p class="status-failed">Failed: ' + esc(err.message) + '</p>';
+    $('hub-activity').innerHTML = '<p class="status-failed">' + esc(t('common.failedPrefix')) + esc(err.message) + '</p>';
   }
 }
 

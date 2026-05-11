@@ -1,5 +1,6 @@
 'use strict';
 
+const { i18nJs } = require('./i18n');
 const { commonJs } = require('./common');
 const { overviewJs } = require('./overview');
 const { pipelinesJs } = require('./pipelines');
@@ -9,6 +10,7 @@ const { personalityJs } = require('./personality');
 const { bootstrapJs } = require('./bootstrap');
 
 const SECTION_HEADERS = {
+  i18n: '// ---- i18n (locale registry + runtime) ----',
   overview: '// ---- Overview ----',
   pipelines: '// ---- Pipelines ----',
   assets: '// ---- Assets ----',
@@ -19,6 +21,7 @@ const SECTION_HEADERS = {
 
 function getClientJs() {
   return [
+    SECTION_HEADERS.i18n, i18nJs,
     commonJs,
     SECTION_HEADERS.overview, overviewJs,
     SECTION_HEADERS.pipelines, pipelinesJs,

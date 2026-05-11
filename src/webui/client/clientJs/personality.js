@@ -23,12 +23,12 @@ function renderPersonality(personality, memoryGraph) {
       }],
     });
   } else {
-    $('personalityChart').innerHTML = '<p class="muted" style="padding:40px;text-align:center">No personality data yet.</p>';
+    $('personalityChart').innerHTML = '<p class="muted" style="padding:40px;text-align:center">' + esc(t('personality.empty.chart')) + '</p>';
   }
 
   $('personality-detail').innerHTML = current && Object.keys(current).length
     ? kv(Object.entries(current).slice(0, 12))
-    : '<p class="muted">No personality data recorded yet.</p>';
+    : '<p class="muted">' + esc(t('personality.empty.detail')) + '</p>';
 
   renderMemoryGraph(memoryGraph);
 }
@@ -41,13 +41,15 @@ const MEMORY_GRAPH_KIND_COLORS = {
   reflection: '#6f42c1',
 };
 
-const MEMORY_GRAPH_CATEGORIES = [
-  { name: 'Event' },
-  { name: 'Gene' },
-  { name: 'Signal' },
-  { name: 'Outcome' },
-  { name: 'Mutation' },
-];
+function memoryGraphCategories() {
+  return [
+    { name: t('personality.cat.event') },
+    { name: t('personality.cat.gene') },
+    { name: t('personality.cat.signal') },
+    { name: t('personality.cat.outcome') },
+    { name: t('personality.cat.mutation') },
+  ];
+}
 
 function shortenGeneId(geneId) {
   if (!geneId) return '';
@@ -185,25 +187,25 @@ function memoryGraphTooltip(params) {
   if (params.dataType === 'edge') return '';
   const d = params.data || {};
   const info = d.info || {};
-  const refRow = d.refCount > 1 ? mgRow('Referenced', d.refCount + ' times') : '';
+  const refRow = d.refCount > 1 ? mgRow(t('personality.tooltip.referenced'), d.refCount + ' ' + t('personality.tooltip.referencedTimes')) : '';
   const title = '<div style="font-weight:600;margin-bottom:6px">' + esc(d.nodeKind || 'node') + ' · ' + esc(d.name) + '</div>';
 
   if (d.nodeKind === 'event') {
     return title + mgTooltipBody([
-      ['Kind', info.kind],
-      ['Time', formatTime(info.ts)],
-      ['Event ID', info.eventId],
-      ['Gene', info.geneId ? shortenGeneId(info.geneId) : null],
-      ['Signals', info.signals?.length ? info.signals.join(', ') : null],
-      ['Outcome', info.outcomeStatus],
-      ['Score', info.score != null ? info.score : null],
-      ['Mutation', info.mutationCategory],
+      [t('personality.tooltip.kind'), info.kind],
+      [t('personality.tooltip.time'), formatTime(info.ts)],
+      [t('personality.tooltip.eventId'), info.eventId],
+      [t('personality.tooltip.gene'), info.geneId ? shortenGeneId(info.geneId) : null],
+      [t('personality.tooltip.signals'), info.signals?.length ? info.signals.join(', ') : null],
+      [t('personality.tooltip.outcome'), info.outcomeStatus ? tStatus(info.outcomeStatus) : null],
+      [t('personality.tooltip.score'), info.score != null ? info.score : null],
+      [t('personality.tooltip.mutation'), info.mutationCategory],
     ]) + refRow;
   }
-  if (d.nodeKind === 'gene') return title + mgTooltipBody([['Gene ID', info.geneId], ['Category', info.category]]) + refRow;
-  if (d.nodeKind === 'signal') return title + mgTooltipBody([['Signal', info.signal]]) + refRow;
-  if (d.nodeKind === 'outcome') return title + mgTooltipBody([['Status', info.status], ['Last score', info.lastScore]]) + refRow;
-  if (d.nodeKind === 'mutation') return title + mgTooltipBody([['Category', info.category]]) + refRow;
+  if (d.nodeKind === 'gene') return title + mgTooltipBody([[t('personality.tooltip.geneId'), info.geneId], [t('personality.tooltip.category'), info.category]]) + refRow;
+  if (d.nodeKind === 'signal') return title + mgTooltipBody([[t('personality.tooltip.signal'), info.signal]]) + refRow;
+  if (d.nodeKind === 'outcome') return title + mgTooltipBody([[t('personality.tooltip.status'), tStatus(info.status)], [t('personality.tooltip.lastScore'), info.lastScore]]) + refRow;
+  if (d.nodeKind === 'mutation') return title + mgTooltipBody([[t('personality.tooltip.category'), info.category]]) + refRow;
   return title + refRow;
 }
 
@@ -223,11 +225,12 @@ function renderMemoryGraph(graph) {
   const isDark = isDarkMode();
   const textColor = chartTextColor();
   if (!graph.exists || !graph.items.length) {
-    $('memory-graph-chart').innerHTML = '<p class="muted" style="padding:40px;text-align:center">No memory graph events yet.</p>';
+    $('memory-graph-chart').innerHTML = '<p class="muted" style="padding:40px;text-align:center">' + esc(t('personality.empty.graph')) + '</p>';
     return;
   }
 
   const { nodes, links } = buildMemoryGraphData(graph.items.slice(0, 100));
+  const categories = memoryGraphCategories();
 
   ensureChart('memory-graph-chart')?.setOption({
     tooltip: {
@@ -239,13 +242,13 @@ function renderMemoryGraph(graph) {
       extraCssText: 'max-width: 320px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);',
       formatter: memoryGraphTooltip,
     },
-    legend: { data: MEMORY_GRAPH_CATEGORIES.map((c) => c.name), top: 0, textStyle: { color: textColor } },
+    legend: { data: categories.map((c) => c.name), top: 0, textStyle: { color: textColor } },
     series: [{
       type: 'graph',
       layout: 'force',
       data: nodes,
       links,
-      categories: MEMORY_GRAPH_CATEGORIES,
+      categories,
       roam: true,
       draggable: true,
       cursor: 'grab',

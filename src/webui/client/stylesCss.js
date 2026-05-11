@@ -259,6 +259,15 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
 .dark .theme-icon-sun  { display: inline-flex; }
 .dark .theme-icon-moon { display: none; }
 
+/* Locale toggle reuses .btn-icon geometry but renders a 2-character
+ * glyph (EN / 中) instead of an SVG. The slightly bumped letter-spacing
+ * keeps the Latin variant from looking cramped at 11px. */
+.btn-locale .locale-glyph {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  line-height: 1; color: inherit;
+}
+[data-locale="zh"] .btn-locale .locale-glyph { font-size: 13px; letter-spacing: 0; }
+
 /* ===========================================================
  * Content + cards
  * ----------------------------------------------------------- */

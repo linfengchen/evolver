@@ -18,19 +18,21 @@ const ICONS = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>',
 };
 
+// Sidebar items reference an i18n key; the live label is rendered by
+// applyI18nDom() based on current locale.
 const NAV = [
-  { tab: 'overview',     icon: 'layout',   label: 'Overview' },
-  { tab: 'pipelines',    icon: 'pipeline', label: 'Pipelines' },
-  { tab: 'assets',       icon: 'package',  label: 'Assets' },
-  { tab: 'interactions', icon: 'activity', label: 'Interactions' },
-  { tab: 'personality',  icon: 'brain',    label: 'Personality' },
+  { tab: 'overview',     icon: 'layout',   labelKey: 'nav.overview' },
+  { tab: 'pipelines',    icon: 'pipeline', labelKey: 'nav.pipelines' },
+  { tab: 'assets',       icon: 'package',  labelKey: 'nav.assets' },
+  { tab: 'interactions', icon: 'activity', labelKey: 'nav.interactions' },
+  { tab: 'personality',  icon: 'brain',    labelKey: 'nav.personality' },
 ];
 
-function navItem({ tab, icon, label }, idx) {
+function navItem({ tab, icon, labelKey }, idx) {
   const active = idx === 0 ? ' active' : '';
   return `<button class="tab nav-item${active}" data-tab="${tab}">
         <span class="nav-icon">${ICONS[icon]}</span>
-        <span class="nav-label">${label}</span>
+        <span class="nav-label" data-i18n="${labelKey}">${labelKey}</span>
       </button>`;
 }
 
@@ -45,6 +47,17 @@ const THEME_INIT_SCRIPT = `(function(){try{
   if (dark) document.documentElement.classList.add('dark');
 }catch(_){}})()`;
 
+// Pre-CSS locale bootstrap. Sets <html lang> + data-locale before paint
+// so server-rendered static text doesn't flash English when a Chinese
+// preference is stored. Defaults to English; switches to zh only when
+// explicitly chosen.
+const LOCALE_INIT_SCRIPT = `(function(){try{
+  var saved = localStorage.getItem('evolver-locale') || 'en';
+  if (saved !== 'en' && saved !== 'zh') saved = 'en';
+  document.documentElement.setAttribute('data-locale', saved);
+  document.documentElement.lang = saved === 'zh' ? 'zh-CN' : 'en';
+}catch(_){}})()`;
+
 function getIndexHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -53,6 +66,7 @@ function getIndexHtml() {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Evolver Web UI</title>
   <script>${THEME_INIT_SCRIPT}</script>
+  <script>${LOCALE_INIT_SCRIPT}</script>
   <link rel="stylesheet" href="/app.css">
   <script src="/vendor/echarts.min.js"></script>
 </head>
@@ -63,30 +77,33 @@ function getIndexHtml() {
         <img class="brand-mark" src="${LOGO_DATA_URI}" alt="Evolver" draggable="false" />
         <div class="brand-text">
           <span class="brand-title">Evolver</span>
-          <span class="brand-eyebrow">local agent</span>
+          <span class="brand-eyebrow" data-i18n="brand.eyebrow">local agent</span>
         </div>
       </div>
       <nav class="nav">
         ${NAV.map(navItem).join('\n        ')}
       </nav>
       <div class="sidebar-spacer"></div>
-      <div class="sidebar-footer">v1.80 · evolves with you</div>
+      <div class="sidebar-footer">v1.80 · <span data-i18n="sidebar.footer">evolves with you</span></div>
     </aside>
 
     <div class="main-col">
       <header class="topbar">
         <div class="topbar-left">
-          <h1 class="topbar-title" id="topbar-title">Overview</h1>
-          <p class="topbar-eyebrow">EvoMap Evolver · Web UI Observability</p>
+          <h1 class="topbar-title" id="topbar-title" data-i18n="nav.overview">Overview</h1>
+          <p class="topbar-eyebrow" data-i18n="topbar.eyebrow">EvoMap Evolver · Web UI Observability</p>
         </div>
         <div class="topbar-actions">
-          <button id="theme-toggle" class="btn-icon" title="Toggle light / dark theme" aria-label="Toggle theme">
+          <button id="locale-toggle" class="btn-icon btn-locale" data-i18n-attr-title="btn.locale.title" data-i18n-attr-aria-label="btn.locale.title" title="Switch language (EN / 中)" aria-label="Switch language">
+            <span class="locale-glyph">EN</span>
+          </button>
+          <button id="theme-toggle" class="btn-icon" data-i18n-attr-title="btn.theme.title" data-i18n-attr-aria-label="btn.theme.title" title="Toggle light / dark theme" aria-label="Toggle theme">
             <span class="theme-icon theme-icon-sun">${ICONS.sun}</span>
             <span class="theme-icon theme-icon-moon">${ICONS.moon}</span>
           </button>
-          <button id="refresh" class="btn-ghost" title="Refresh all data">
+          <button id="refresh" class="btn-ghost" data-i18n-attr-title="btn.refresh.title" title="Refresh all data">
             <span class="nav-icon">${ICONS.refresh}</span>
-            <span>Refresh</span>
+            <span data-i18n="btn.refresh">Refresh</span>
           </button>
         </div>
       </header>
@@ -94,23 +111,23 @@ function getIndexHtml() {
       <main class="content evox-scroll">
         <section data-view="overview" class="view active">
           <div class="grid-top">
-            <div class="card"><h2>Status</h2><div id="status">Loading...</div></div>
-            <div class="card"><h2>Safety</h2><div id="safety">Loading...</div></div>
-            <div class="card"><h2>Interactions</h2><div id="interactions">Loading...</div></div>
+            <div class="card"><h2 data-i18n="overview.card.status">Status</h2><div id="status" data-i18n="common.loading">Loading...</div></div>
+            <div class="card"><h2 data-i18n="overview.card.safety">Safety</h2><div id="safety" data-i18n="common.loading">Loading...</div></div>
+            <div class="card"><h2 data-i18n="overview.card.interactions">Interactions</h2><div id="interactions" data-i18n="common.loading">Loading...</div></div>
           </div>
           <div class="grid-charts">
-            <div class="card"><h2>Genes by Category</h2><div id="genesChart" class="chart-container"></div></div>
-            <div class="card"><h2>Capsules by Outcome</h2><div id="capsulesChart" class="chart-container"></div></div>
-            <div class="card"><h2>Asset Calls</h2><div id="callsChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="overview.card.genesByCategory">Genes by Category</h2><div id="genesChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="overview.card.capsulesByOutcome">Capsules by Outcome</h2><div id="capsulesChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="overview.card.assetCalls">Asset Calls</h2><div id="callsChart" class="chart-container"></div></div>
           </div>
           <div class="grid-bottom">
             <div class="card">
-              <h2>Latest Pipeline Run</h2>
-              <div id="latest-run">Loading...</div>
+              <h2 data-i18n="overview.card.latestRun">Latest Pipeline Run</h2>
+              <div id="latest-run" data-i18n="common.loading">Loading...</div>
             </div>
             <div class="card">
-              <h2>Skills</h2>
-              <div id="skills">Loading...</div>
+              <h2 data-i18n="overview.card.skills">Skills</h2>
+              <div id="skills" data-i18n="common.loading">Loading...</div>
             </div>
           </div>
         </section>
@@ -118,74 +135,74 @@ function getIndexHtml() {
         <section data-view="pipelines" class="view">
           <div class="grid-bottom">
             <div class="card">
-              <h2>Pipeline Runs</h2>
+              <h2 data-i18n="pipelines.card.runs">Pipeline Runs</h2>
               <div class="table-wrapper">
                 <table id="runsTable">
-                  <thead><tr><th>Run ID</th><th>Status</th><th>Gene</th><th>Score</th><th>Updated</th></tr></thead>
+                  <thead><tr><th data-i18n="pipelines.col.runId">Run ID</th><th data-i18n="pipelines.col.status">Status</th><th data-i18n="pipelines.col.gene">Gene</th><th data-i18n="pipelines.col.score">Score</th><th data-i18n="pipelines.col.updated">Updated</th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
             </div>
             <div class="card">
-              <h2>Run Trace</h2>
-              <div id="run-detail"><p class="muted">Select a run to inspect its trace.</p></div>
+              <h2 data-i18n="pipelines.card.runTrace">Run Trace</h2>
+              <div id="run-detail"><p class="muted" data-i18n="pipelines.runs.selectHint">Select a run to inspect its trace.</p></div>
             </div>
           </div>
         </section>
 
         <section data-view="assets" class="view">
           <div class="asset-tabs">
-            <button class="asset-tab active" data-asset="genes">Genes</button>
-            <button class="asset-tab" data-asset="capsules">Capsules</button>
-            <button class="asset-tab" data-asset="events">Events</button>
-            <button class="asset-tab" data-asset="candidates">Candidates</button>
-            <button class="asset-tab" data-asset="calls">Asset Calls</button>
+            <button class="asset-tab active" data-asset="genes" data-i18n="assets.tab.genes">Genes</button>
+            <button class="asset-tab" data-asset="capsules" data-i18n="assets.tab.capsules">Capsules</button>
+            <button class="asset-tab" data-asset="events" data-i18n="assets.tab.events">Events</button>
+            <button class="asset-tab" data-asset="candidates" data-i18n="assets.tab.candidates">Candidates</button>
+            <button class="asset-tab" data-asset="calls" data-i18n="assets.tab.calls">Asset Calls</button>
           </div>
           <div class="card">
-            <div id="asset-list">Loading...</div>
+            <div id="asset-list" data-i18n="common.loading">Loading...</div>
           </div>
         </section>
 
         <section data-view="interactions" class="view">
           <div class="grid-charts">
-            <div class="card"><h2>Hub A2A by Action</h2><div id="hubActionChart" class="chart-container"></div></div>
-            <div class="card"><h2>Activity (last 30 days)</h2><div id="activityChart" class="chart-container"></div></div>
-            <div class="card"><h2>Mailbox by Type</h2><div id="mailboxChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="interactions.card.hubByAction">Hub A2A by Action</h2><div id="hubActionChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="interactions.card.activity30d">Activity (last 30 days)</h2><div id="activityChart" class="chart-container"></div></div>
+            <div class="card"><h2 data-i18n="interactions.card.mailboxByType">Mailbox by Type</h2><div id="mailboxChart" class="chart-container"></div></div>
           </div>
           <div class="card">
-            <h2>Hub Activity</h2>
-            <p class="muted small card-sub">Unified timeline of every Hub interaction — connection lifecycle (hello/heartbeat/fetch), asset calls (search/reuse/publish) and ATP credit flows.</p>
-            <div id="hub-activity-summary" class="lifecycle-summary">Loading...</div>
+            <h2 data-i18n="interactions.card.hubActivity">Hub Activity</h2>
+            <p class="muted small card-sub" data-i18n="interactions.card.hubActivity.desc">Unified timeline of every Hub interaction — connection lifecycle (hello/heartbeat/fetch), asset calls (search/reuse/publish) and ATP credit flows.</p>
+            <div id="hub-activity-summary" class="lifecycle-summary" data-i18n="common.loading">Loading...</div>
             <div class="filter-bar" id="hub-activity-filters" style="display:none">
               <div class="filter-group">
-                <span class="filter-label">Layer</span>
-                <button class="filter-pill active" data-filter-layer="all">All</button>
-                <button class="filter-pill" data-filter-layer="lifecycle">Lifecycle</button>
-                <button class="filter-pill" data-filter-layer="asset">Asset</button>
-                <button class="filter-pill" data-filter-layer="atp">ATP</button>
+                <span class="filter-label" data-i18n="interactions.filter.layer">Layer</span>
+                <button class="filter-pill active" data-filter-layer="all" data-i18n="interactions.filter.all">All</button>
+                <button class="filter-pill" data-filter-layer="lifecycle" data-i18n="interactions.filter.lifecycle">Lifecycle</button>
+                <button class="filter-pill" data-filter-layer="asset" data-i18n="interactions.filter.asset">Asset</button>
+                <button class="filter-pill" data-filter-layer="atp" data-i18n="interactions.filter.atp">ATP</button>
               </div>
-              <label class="filter-toggle"><input type="checkbox" id="hide-heartbeats" checked /> Hide heartbeats</label>
+              <label class="filter-toggle"><input type="checkbox" id="hide-heartbeats" checked /> <span data-i18n="interactions.filter.hideHeartbeats">Hide heartbeats</span></label>
             </div>
-            <div id="hub-activity">Loading...</div>
+            <div id="hub-activity" data-i18n="common.loading">Loading...</div>
           </div>
           <div class="card">
-            <h2>Agent Interactions</h2>
-            <p class="muted small card-sub">Mailbox messages, sessions and DMs (read-only, redacted).</p>
-            <div id="agent-stream">Loading...</div>
+            <h2 data-i18n="interactions.card.agent">Agent Interactions</h2>
+            <p class="muted small card-sub" data-i18n="interactions.card.agent.desc">Mailbox messages, sessions and DMs (read-only, redacted).</p>
+            <div id="agent-stream" data-i18n="common.loading">Loading...</div>
           </div>
           <div class="card">
-            <h2>Proxy Snapshots</h2>
-            <div id="proxy-snapshots" class="snapshot-grid">Loading...</div>
+            <h2 data-i18n="interactions.card.proxySnapshots">Proxy Snapshots</h2>
+            <div id="proxy-snapshots" class="snapshot-grid" data-i18n="common.loading">Loading...</div>
           </div>
         </section>
 
         <section data-view="personality" class="view">
           <div class="grid-charts">
-            <div class="card"><h2>Personality Traits</h2><div id="personalityChart" class="chart-container chart-tall"></div></div>
-            <div class="card"><h2>Personality Detail</h2><div id="personality-detail">Loading...</div></div>
+            <div class="card"><h2 data-i18n="personality.card.traits">Personality Traits</h2><div id="personalityChart" class="chart-container chart-tall"></div></div>
+            <div class="card"><h2 data-i18n="personality.card.detail">Personality Detail</h2><div id="personality-detail" data-i18n="common.loading">Loading...</div></div>
           </div>
           <div class="card">
-            <h2>Memory Graph (last 100 events)</h2>
+            <h2 data-i18n="personality.card.memoryGraph">Memory Graph (last 100 events)</h2>
             <div id="memory-graph-chart" class="chart-container chart-xl"></div>
           </div>
         </section>
