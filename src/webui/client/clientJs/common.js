@@ -12,6 +12,9 @@ async function api(path) {
 }
 
 function isDarkMode() {
+  // Class set by THEME_INIT_SCRIPT / theme toggle wins; fall back to
+  // OS preference when no explicit choice has been made.
+  if (document.documentElement.classList.contains('dark')) return true;
   return window.matchMedia('(prefers-color-scheme: dark)').matches;
 }
 
@@ -47,6 +50,11 @@ function esc(value) {
 function format(value) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'object') return JSON.stringify(value);
+  // Round non-integer numbers to 4 decimals to drop float noise like
+  // 0.7499999999999999 -> 0.75 without losing meaningful precision.
+  if (typeof value === 'number' && Number.isFinite(value) && !Number.isInteger(value)) {
+    return Number(value.toFixed(4));
+  }
   return value;
 }
 

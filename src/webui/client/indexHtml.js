@@ -1,7 +1,12 @@
 'use strict';
 
+// Brand mark — same 256x256 PNG that ships in evomap/evox-desktop
+// (frontend/src/assets/logo.png), inlined as data: URI so the dashboard
+// stays self-contained (no extra HTTP route, no build step). Original
+// file is 1077 bytes; base64-encoded payload is ~1.4 KB.
+const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAAD/ElEQVR42u3UoQEDMQwEwUcJUP/NPlGqCNEOmAZs3T6f7yzQ9HgEEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABAAQAEABAAAABOO5937/wtgJAYOjCIAAYuygIAAYvCAKA0YuBAGD0YiAAGL4QCABGLwYCgOELgQBg+EIgABi+EAiA4SMEAmD4CIEAGD8iIACGjxAIgPEjAgJg+AiBABg/IiAAho8QCIDxIwICYPyIgAAYPyIgAIaPEAiA8SMCAmD8iIAAGD8iIADGjwgIgPEjAgJg/IiAABg/IiAAxo8ICIDxIwIC4KgRgGYAHDQiEA2AQ0YEogFwwIhANAAOFxEQABCAWgAcLCIQDYBDRQQEAASgFgAHighEA+AwEQEBAAGoBcBBIgLRADhEREAAQABqAXCAiIAAgADUAuDwEAEBAAGoBcDBIQICAAJQC4BDQwQEAASgFgAHhggIAAiAAIAAZALgsBABAQABqAXAQSECAgACIAAgAJkAOCREQABAAAQABCATAAeECAgACIAAgAAIAAjA/QA4HERAAEAABAAEQABAAAQABOBwABwMIiAAIAACAAIgACAAAgACIAAgABcD4FAQAQEAARAAEAABAAEQABAAAQABEAAQAAEAARAAEAABAAEQABAAAQABEAAQAAEAARAAEAABAAEQABAAAQABEAAQAAEAARAAEAABAAEQAbg1fgEAARAAEAABAAEQABAAAQABEAG4On4BAAEQABAAAQABEAAQABGA4+MXABAAAQABEAAQABGAxvgFAARAAEAARABS4xcAEAABAAEQAUiNXwBAAGZFAHrjFwAQAAEAARABSI1fAEAAZkUAeuMXABCAWRGA3vgFAARgVgSgN34BAAGYFQHojV8AQABmRQB64z8TABHA+AUABKAaABHA+OMBEAGMXwBAAKoBEAGMPx4AEcD4BQAEoBoAEcD44wEQAYw/HgARwPjjARABjF8AQACqARABjD8eABHA+OMBEAGMPx4AEcD44wEQAerjzwdABKjffz4AImD8AoBBGL8AiIBhGL8ACIGRGL4AiADGLwAigPELgAhg/AIgBBi+AIgAxi8AQoDhC4AIYPwCIAQYvgCIAMYvAEKA4QuAEGD4AiAEGL4ACAGGLwBCgOELgBhg9AIgBIaPAGD0CAAnY+BPBYBQEPyZABCJgr8QAAJh8LYCAAgAIACAAAACAAgAIACAAAACAAgAIACAAAACAAgAIACAAAACAAgAIACAAAACAAgAIACAAAACAAgAIACAAAACAAgAIAAgAIAAAAIACAAgAMBVP0So0nvkC/TPAAAAAElFTkSuQmCC';
+
 // Inline lucide-style SVG icons (24x24, currentColor stroke).
-// Kept in one constant block so the HTML template stays readable.
 const ICONS = {
   layout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>',
   pipeline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
@@ -9,6 +14,8 @@ const ICONS = {
   activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.5.5 0 0 1-.96 0L9.68 3.18a.5.5 0 0 0-.96 0l-2.35 8.36A2 2 0 0 1 4.44 13H2"/></svg>',
   brain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>',
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>',
 };
 
 const NAV = [
@@ -27,6 +34,17 @@ function navItem({ tab, icon, label }, idx) {
       </button>`;
 }
 
+// Pre-CSS theme bootstrap. Runs synchronously in <head> so the chosen
+// theme class is set on <html> *before* the stylesheet evaluates, which
+// avoids a flash of the wrong palette on first paint. Reads
+// localStorage 'evolver-theme' (light|dark|system, default system) and
+// adds .dark to <html> if appropriate.
+const THEME_INIT_SCRIPT = `(function(){try{
+  var saved = localStorage.getItem('evolver-theme') || 'system';
+  var dark = saved === 'dark' || (saved === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  if (dark) document.documentElement.classList.add('dark');
+}catch(_){}})()`;
+
 function getIndexHtml() {
   return `<!doctype html>
 <html lang="en">
@@ -34,6 +52,7 @@ function getIndexHtml() {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Evolver Web UI</title>
+  <script>${THEME_INIT_SCRIPT}</script>
   <link rel="stylesheet" href="/app.css">
   <script src="/vendor/echarts.min.js"></script>
 </head>
@@ -41,7 +60,7 @@ function getIndexHtml() {
   <div class="shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">E</div>
+        <img class="brand-mark" src="${LOGO_DATA_URI}" alt="Evolver" draggable="false" />
         <div class="brand-text">
           <span class="brand-title">Evolver</span>
           <span class="brand-eyebrow">local agent</span>
@@ -61,6 +80,10 @@ function getIndexHtml() {
           <p class="topbar-eyebrow">EvoMap Evolver · Web UI Observability</p>
         </div>
         <div class="topbar-actions">
+          <button id="theme-toggle" class="btn-icon" title="Toggle light / dark theme" aria-label="Toggle theme">
+            <span class="theme-icon theme-icon-sun">${ICONS.sun}</span>
+            <span class="theme-icon theme-icon-moon">${ICONS.moon}</span>
+          </button>
           <button id="refresh" class="btn-ghost" title="Refresh all data">
             <span class="nav-icon">${ICONS.refresh}</span>
             <span>Refresh</span>

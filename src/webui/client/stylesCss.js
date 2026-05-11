@@ -32,30 +32,33 @@ function getStylesCss() {
   --ring: 240 5.9% 10%;
   --radius: 0.75rem;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: 0 0% 4%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 6%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 6%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 0 0% 12%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 12%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 217 91% 65%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 62.8% 50%;
-    --destructive-foreground: 0 0% 98%;
-    --success: 142 60% 45%;
-    --warning: 38 95% 56%;
-    --border: 0 0% 14%;
-    --input: 0 0% 14%;
-    --ring: 0 0% 83.1%;
-  }
+/* Dark theme — applied when <html> has the .dark class. The class is
+ * set synchronously in <head> by THEME_INIT_SCRIPT (see indexHtml.js)
+ * before the stylesheet evaluates, so there is no flash of the wrong
+ * palette on first paint. Selection is class-based (not @media) so the
+ * topbar toggle can override the OS preference at runtime. */
+.dark {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 98%;
+  --card: 0 0% 6%;
+  --card-foreground: 0 0% 98%;
+  --popover: 0 0% 6%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --secondary: 0 0% 12%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 217 91% 65%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 62.8% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 60% 45%;
+  --warning: 38 95% 56%;
+  --border: 0 0% 14%;
+  --input: 0 0% 14%;
+  --ring: 0 0% 83.1%;
 }
 
 /* ===========================================================
@@ -84,10 +87,8 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
   z-index: 0;
   background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(120, 119, 198, 0.10), rgba(255, 255, 255, 0) 60%);
 }
-@media (prefers-color-scheme: dark) {
-  .app-atmosphere::before {
-    background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(99, 102, 241, 0.08), rgba(0, 0, 0, 0) 60%);
-  }
+.dark .app-atmosphere::before {
+  background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(99, 102, 241, 0.08), rgba(0, 0, 0, 0) 60%);
 }
 
 /* Thin scrollbar (only inside .evox-scroll containers). */
@@ -138,13 +139,13 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
 .brand-mark {
   width: 56px; height: 56px;
   border-radius: 16px;
-  background: linear-gradient(135deg, hsl(217 91% 60%) 0%, hsl(265 80% 55%) 100%);
-  color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 26px; letter-spacing: -0.02em;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.14);
-  ring: 1px solid rgba(0,0,0,0.10);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.14), inset 0 0 0 1px rgba(255,255,255,0.16);
+  display: block;
+  object-fit: cover;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.14), inset 0 0 0 1px rgba(0,0,0,0.10);
+  user-select: none;
+}
+.dark .brand-mark {
+  box-shadow: 0 6px 20px rgba(0,0,0,0.36), inset 0 0 0 1px rgba(255,255,255,0.10);
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
 .brand-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: hsl(var(--foreground)); }
@@ -170,13 +171,17 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
 }
 .nav-item:hover {
   color: hsl(var(--foreground));
-  background: hsl(var(--foreground) / 0.04);
+  background: hsl(var(--foreground) / 0.05);
 }
+/* Active nav uses an accent-tinted background so the brand color
+ * dominates and any radial-atmosphere bleed through the translucent
+ * sidebar (the previous "pinkish" wash) is overridden. */
 .nav-item.active {
-  color: hsl(var(--foreground));
-  background: hsl(var(--foreground) / 0.06);
-  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.05);
+  color: hsl(var(--accent));
+  background: hsl(var(--accent) / 0.10);
+  box-shadow: inset 0 0 0 1px hsl(var(--accent) / 0.18);
 }
+.nav-item.active .nav-icon { color: hsl(var(--accent)); opacity: 1; }
 .nav-icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 16px; height: 16px;
@@ -230,6 +235,29 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
 }
 .btn-ghost .nav-icon { opacity: 0.7; }
 .btn-ghost:hover .nav-icon { opacity: 1; }
+
+/* Topbar theme toggle. Sun and moon icons are stacked; only one is
+ * visible at a time depending on the active theme. The button itself
+ * is a flat, square icon-button (28x28) consistent with evox-desktop. */
+.btn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  color: hsl(var(--muted-foreground) / 0.85);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+.btn-icon:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--foreground) / 0.05);
+}
+.btn-icon svg { width: 14px; height: 14px; }
+.theme-icon-sun  { display: none; }
+.theme-icon-moon { display: inline-flex; }
+.dark .theme-icon-sun  { display: inline-flex; }
+.dark .theme-icon-moon { display: none; }
 
 /* ===========================================================
  * Content + cards
