@@ -4,6 +4,7 @@ const observer = require('../observer');
 
 function buildWebUiRoutes() {
   return {
+    'GET /webui/projects': async () => ({ body: observer.listProjects() }),
     'GET /webui/status': async () => ({ body: observer.getStatus() }),
     'GET /webui/safety': async () => ({ body: observer.getSafetyState() }),
     'GET /webui/runs': async ({ query }) => ({ body: observer.listRuns(query) }),

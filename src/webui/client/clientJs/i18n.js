@@ -29,6 +29,8 @@ const I18N_DICT = {
   'btn.refresh.title': { en: 'Refresh all data', zh: '刷新所有数据' },
   'btn.theme.title': { en: 'Toggle light / dark theme', zh: '切换浅色 / 深色主题' },
   'btn.locale.title': { en: 'Switch language (EN / 中)', zh: '切换语言（EN / 中）' },
+  'project.select.label': { en: 'Project', zh: '项目' },
+  'project.select.failed': { en: 'Project discovery failed', zh: '项目发现失败' },
 
   // ---- Nav ----
   'nav.overview': { en: 'Overview', zh: '总览' },

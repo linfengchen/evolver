@@ -3,6 +3,8 @@
 const http = require('http');
 const { buildWebUiRoutes } = require('./routes');
 const { getIndexHtml, getClientJs, getStylesCss, getVendorEcharts } = require('../client/static');
+const { runWithProject } = require('../projects/context');
+const { resolveProject } = require('../projects/registry');
 
 const DEFAULT_WEBUI_PORT = 19821;
 const MAX_PORT_ATTEMPTS = 50;
@@ -50,7 +52,11 @@ class WebUiServer {
 
     try {
       const query = Object.fromEntries(url.searchParams);
-      const result = await matched.handler({ query, params: matched.params });
+      const project = resolveProject(query.project);
+      if (query.project && !project) {
+        throw httpError(404, 'PROJECT_NOT_FOUND', 'Project not found', { project: query.project });
+      }
+      const result = await runWithProject(project, () => matched.handler({ query, params: matched.params }));
       return sendJson(res, result.status || 200, result.body || result);
     } catch (err) {
       this.logger.error('[webui] request failed:', err && err.message || err);
@@ -63,6 +69,14 @@ class WebUiServer {
       });
     }
   }
+}
+
+function httpError(statusCode, code, message, details) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  err.code = code;
+  err.details = details || {};
+  return err;
 }
 
 function matchRoute(routes, method, pathname) {

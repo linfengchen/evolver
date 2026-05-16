@@ -2,7 +2,10 @@
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
+const path = require('path');
 
 const { WebUiServer } = require('../src/webui');
 
@@ -17,6 +20,17 @@ function request(url) {
       });
     }).on('error', reject);
   });
+}
+
+function makeProject(root) {
+  fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'memory', 'evolution'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'assets', 'gep'), { recursive: true });
+}
+
+function appendJsonl(filePath, rows) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
 }
 
 describe('WebUiServer', () => {
@@ -71,6 +85,47 @@ describe('WebUiServer', () => {
     const body = JSON.parse(res.body);
     assert.equal(res.status, 404);
     assert.equal(body.error.code, 'RUN_NOT_FOUND');
+  });
+
+  it('lists discovered projects and reads the selected project memory', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webui-server-project-'));
+    const previousExtraProjects = process.env.EVOLVER_WEBUI_EXTRA_PROJECTS;
+    try {
+      const projectRoot = path.join(tmpDir, 'selected-project');
+      makeProject(projectRoot);
+      const projectRealRoot = fs.realpathSync(projectRoot);
+      appendJsonl(path.join(projectRoot, 'memory', 'evolution', 'pipeline_events.jsonl'), [
+        {
+          run_id: 'selected-run',
+          phase: 'evolve.run',
+          status: 'success',
+          started_at: '2026-05-12T00:00:00.000Z',
+          finished_at: '2026-05-12T00:00:01.000Z',
+          timestamp: '2026-05-12T00:00:01.000Z',
+        },
+      ]);
+      process.env.EVOLVER_WEBUI_EXTRA_PROJECTS = projectRoot;
+
+      const projectsRes = await request(`${baseUrl}/webui/projects`);
+      const projectsBody = JSON.parse(projectsRes.body);
+      const project = projectsBody.projects.find((entry) => entry.repoRoot === projectRealRoot);
+      assert.equal(projectsRes.status, 200);
+      assert.ok(project, 'manual project should be listed');
+
+      const runsRes = await request(`${baseUrl}/webui/runs?project=${encodeURIComponent(project.id)}`);
+      const runsBody = JSON.parse(runsRes.body);
+      assert.equal(runsRes.status, 200);
+      assert.equal(runsBody.data[0].runId, 'selected-run');
+
+      const missingRes = await request(`${baseUrl}/webui/runs?project=missing`);
+      const missingBody = JSON.parse(missingRes.body);
+      assert.equal(missingRes.status, 404);
+      assert.equal(missingBody.error.code, 'PROJECT_NOT_FOUND');
+    } finally {
+      if (previousExtraProjects === undefined) delete process.env.EVOLVER_WEBUI_EXTRA_PROJECTS;
+      else process.env.EVOLVER_WEBUI_EXTRA_PROJECTS = previousExtraProjects;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('does not ship the kv-then-partial-replace HTML escape antipattern', async () => {

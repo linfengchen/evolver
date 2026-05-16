@@ -217,6 +217,32 @@ code, pre, .mono { font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Conso
 .topbar-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .topbar-eyebrow { margin: 0; font-size: 11px; color: hsl(var(--muted-foreground)); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+.project-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 500;
+}
+.project-picker select {
+  max-width: 280px;
+  height: 34px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0 10px;
+  font: inherit;
+}
+.project-picker select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.project-picker select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 
 .btn-ghost {
   display: inline-flex; align-items: center; gap: 6px;

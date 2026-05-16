@@ -94,6 +94,12 @@ function getIndexHtml() {
           <p class="topbar-eyebrow" data-i18n="topbar.eyebrow">EvoMap Evolver · Web UI Observability</p>
         </div>
         <div class="topbar-actions">
+          <label class="project-picker">
+            <span data-i18n="project.select.label">Project</span>
+            <select id="project-select" aria-label="Project">
+              <option value="" data-i18n="common.loading">Loading...</option>
+            </select>
+          </label>
           <button id="locale-toggle" class="btn-icon btn-locale" data-i18n-attr-title="btn.locale.title" data-i18n-attr-aria-label="btn.locale.title" title="Switch language (EN / 中)" aria-label="Switch language">
             <span class="locale-glyph">EN</span>
           </button>

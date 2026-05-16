@@ -75,6 +75,40 @@ function toggleLocale() {
   refresh();
 }
 
+async function loadProjects() {
+  const select = $('project-select');
+  if (!select) return;
+  try {
+    const payload = await api('/webui/projects');
+    state.projects = payload.projects || [];
+    const stored = localStorage.getItem('evolver-project-id');
+    const hasStored = state.projects.some((project) => project.id === stored);
+    state.selectedProjectId = hasStored ? stored : payload.defaultProjectId;
+    select.innerHTML = state.projects.map((project) => {
+      const sources = (project.agentSources || []).join(',');
+      return '<option value="' + esc(project.id) + '">' + esc(project.label + (sources ? ' · ' + sources : '')) + '</option>';
+    }).join('');
+    select.value = state.selectedProjectId || '';
+    select.disabled = state.projects.length <= 1;
+  } catch (err) {
+    select.innerHTML = '<option value="">' + esc(t('project.select.failed')) + '</option>';
+    select.disabled = true;
+  }
+}
+
+function onProjectChange() {
+  const select = $('project-select');
+  if (!select) return;
+  state.selectedProjectId = select.value || null;
+  try {
+    localStorage.setItem('evolver-project-id', state.selectedProjectId || '');
+  } catch (_) {
+    // localStorage can be disabled; the in-memory selection still works.
+  }
+  disposeAllCharts();
+  refresh();
+}
+
 // Initial paint — set glyph + apply translations to the static markup.
 syncLocaleGlyph();
 applyI18nDom();
@@ -86,7 +120,9 @@ const themeBtn = $('theme-toggle');
 if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 const localeBtn = $('locale-toggle');
 if (localeBtn) localeBtn.addEventListener('click', toggleLocale);
+const projectSelect = $('project-select');
+if (projectSelect) projectSelect.addEventListener('change', onProjectChange);
 window.addEventListener('resize', () => Object.values(state.charts).forEach((c) => c.resize && c.resize()));
 window.loadRun = loadRun;
-loadOverview();
+loadProjects().then(loadOverview);
 `;

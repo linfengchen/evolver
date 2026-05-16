@@ -1,14 +1,21 @@
 'use strict';
 
 exports.commonJs = `
-const state = { selectedRunId: null, charts: {}, currentTab: 'overview', currentAsset: 'genes' };
+const state = { selectedRunId: null, charts: {}, currentTab: 'overview', currentAsset: 'genes', selectedProjectId: null, projects: [] };
 const $ = (id) => document.getElementById(id);
 
 async function api(path) {
-  const res = await fetch(path);
+  const res = await fetch(withProjectQuery(path));
   const body = await res.json();
   if (!res.ok) throw new Error(body.error?.message || 'Request failed');
   return body;
+}
+
+function withProjectQuery(path) {
+  if (!state.selectedProjectId || !path.startsWith('/webui/') || path.startsWith('/webui/projects')) return path;
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set('project', state.selectedProjectId);
+  return url.pathname + url.search;
 }
 
 function isDarkMode() {

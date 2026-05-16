@@ -148,7 +148,7 @@ describe('getRepoRoot', () => {
     const { getRepoRoot } = require(resolved);
     // Opt-out: should fall back to ownDir (the fake package root), NOT host.
     const ownDir = path.resolve(fakeGepDir, '..', '..');
-    assert.equal(getRepoRoot(), ownDir);
+    assert.equal(getRepoRoot(), fs.realpathSync(ownDir));
 
     delete require.cache[resolved];
     fs.rmSync(host, { recursive: true, force: true });
@@ -170,7 +170,7 @@ describe('getRepoRoot', () => {
     delete require.cache[resolved];
     const { getRepoRoot } = require(resolved);
     const ownDir = path.resolve(fakeGepDir, '..', '..');
-    assert.equal(getRepoRoot(), ownDir);
+    assert.equal(getRepoRoot(), fs.realpathSync(ownDir));
 
     delete require.cache[resolved];
     fs.rmSync(host, { recursive: true, force: true });

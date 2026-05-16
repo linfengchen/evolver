@@ -9,6 +9,7 @@ const { getPersonality, getMemoryGraph } = require('./personality');
 const { listSkills } = require('./skills');
 const { getObserverPaths } = require('./paths');
 const { tailText } = require('./jsonl');
+const { listProjects } = require('../projects/registry');
 const { redactText } = require('./redact');
 
 function getEvolverLog(query = {}) {
@@ -33,5 +34,6 @@ module.exports = {
   getPersonality,
   getMemoryGraph,
   listSkills,
+  listProjects,
   getEvolverLog,
 };

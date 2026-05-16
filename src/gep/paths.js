@@ -3,6 +3,16 @@ const fs = require('fs');
 
 let _cachedRepoRoot = null;
 
+function getCurrentPathContextSafe() {
+  try {
+    return require('./pathContext').getCurrentPathContext();
+  } catch {
+    // Some legacy tests copy paths.js into a fake package without sibling
+    // modules. In that layout there is no WebUI request context to honor.
+    return null;
+  }
+}
+
 // Resolve the git repository that evolver should treat as its work area.
 //
 // Precedence:
@@ -22,6 +32,9 @@ let _cachedRepoRoot = null;
 //   EVOLVER_USE_PARENT_GIT=true flag is still honored for forward
 //   compatibility but is no longer required.
 function getRepoRoot() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.repoRoot) return context.repoRoot;
+
   // Always check EVOLVER_REPO_ROOT first, even when a cached value exists.
   // .env is loaded during index.js bootstrap AFTER this function has
   // already been called at least once (for locating the .env file
@@ -83,6 +96,9 @@ function getRepoRoot() {
 }
 
 function getWorkspaceRoot() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.workspaceRoot) return context.workspaceRoot;
+
   if (process.env.OPENCLAW_WORKSPACE) {
     return process.env.OPENCLAW_WORKSPACE;
   }
@@ -97,6 +113,8 @@ function getWorkspaceRoot() {
 }
 
 function getLogsDir() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.logsDir) return context.logsDir;
   return process.env.EVOLVER_LOGS_DIR || path.join(getWorkspaceRoot(), 'logs');
 }
 
@@ -105,6 +123,8 @@ function getEvolverLogPath() {
 }
 
 function getMemoryDir() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.memoryDir) return context.memoryDir;
   return process.env.MEMORY_DIR || path.join(getWorkspaceRoot(), 'memory');
 }
 
@@ -117,6 +137,8 @@ function getSessionScope() {
 }
 
 function getEvolutionDir() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.evolutionDir) return context.evolutionDir;
   const baseDir = process.env.EVOLUTION_DIR || path.join(getMemoryDir(), 'evolution');
   const scope = getSessionScope();
   if (scope) {
@@ -126,6 +148,8 @@ function getEvolutionDir() {
 }
 
 function getGepAssetsDir() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.gepAssetsDir) return context.gepAssetsDir;
   const repoRoot = getRepoRoot();
   const baseDir = process.env.GEP_ASSETS_DIR || path.join(repoRoot, 'assets', 'gep');
   const scope = getSessionScope();
@@ -136,6 +160,8 @@ function getGepAssetsDir() {
 }
 
 function getSkillsDir() {
+  const context = getCurrentPathContextSafe();
+  if (context && context.skillsDir) return context.skillsDir;
   return process.env.SKILLS_DIR || path.join(getWorkspaceRoot(), 'skills');
 }
 
