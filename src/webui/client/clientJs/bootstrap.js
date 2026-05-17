@@ -3,7 +3,11 @@
 exports.bootstrapJs = `
 function activateTab(tab) {
   state.currentTab = tab;
-  document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
+  document.querySelectorAll('.tab').forEach((b) => {
+    const active = b.getAttribute('data-tab') === tab;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-current', active ? 'page' : 'false');
+  });
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.getAttribute('data-view') === tab));
   setTimeout(() => Object.values(state.charts).forEach((c) => c.resize && c.resize()), 50);
   if (tab === 'pipelines') loadPipelines();
@@ -25,5 +29,8 @@ document.querySelectorAll('.asset-tab').forEach((b) => b.addEventListener('click
 $('refresh').addEventListener('click', refresh);
 window.addEventListener('resize', () => Object.values(state.charts).forEach((c) => c.resize && c.resize()));
 window.loadRun = loadRun;
+initializeLanguageControls();
+initializeVersionCard();
+loadVersionCard();
 loadOverview();
 `;

@@ -2,6 +2,56 @@
 
 exports.interactionsJs = `
 const HUB_ACTIVITY_STATE = { layer: 'all', hideHeartbeats: true, events: [] };
+const SNAPSHOT_SERVICE_META = {
+  status: {
+    title: 'snapshot.status.title',
+    description: 'snapshot.status.description',
+    features: 'snapshot.status.features',
+    endpoint: '/proxy/status',
+  },
+  hubStatus: {
+    title: 'snapshot.hubStatus.title',
+    description: 'snapshot.hubStatus.description',
+    features: 'snapshot.hubStatus.features',
+    endpoint: '/proxy/hub-status',
+  },
+  taskMetrics: {
+    title: 'snapshot.taskMetrics.title',
+    description: 'snapshot.taskMetrics.description',
+    features: 'snapshot.taskMetrics.features',
+    endpoint: '/task/metrics',
+  },
+  assetSubmissions: {
+    title: 'snapshot.assetSubmissions.title',
+    description: 'snapshot.assetSubmissions.description',
+    features: 'snapshot.assetSubmissions.features',
+    endpoint: '/asset/submissions?limit=20',
+  },
+  sessions: {
+    title: 'snapshot.sessions.title',
+    description: 'snapshot.sessions.description',
+    features: 'snapshot.sessions.features',
+    endpoint: '/session/list?limit=20',
+  },
+  dms: {
+    title: 'snapshot.dms.title',
+    description: 'snapshot.dms.description',
+    features: 'snapshot.dms.features',
+    endpoint: '/dm/list?limit=20',
+  },
+  atpPolicy: {
+    title: 'snapshot.atpPolicy.title',
+    description: 'snapshot.atpPolicy.description',
+    features: 'snapshot.atpPolicy.features',
+    endpoint: '/atp/policy',
+  },
+  atpProofs: {
+    title: 'snapshot.atpProofs.title',
+    description: 'snapshot.atpProofs.description',
+    features: 'snapshot.atpProofs.features',
+    endpoint: '/atp/proofs?limit=20',
+  },
+};
 
 function buildHubActivityEvents(calls, atpProofs, atpOrders, lifecycleEvents) {
   const events = [];
@@ -21,7 +71,7 @@ function buildHubActivityEvents(calls, atpProofs, atpOrders, lifecycleEvents) {
     kind: c.action,
     outcome: inferAssetOutcome(c.action),
     title: c.asset_id || c.reason || '-',
-    meta: c.run_id ? 'run ' + c.run_id : null,
+    meta: c.run_id ? t('table.run') + ' ' + c.run_id : null,
     score: c.score,
   }));
   (atpProofs || []).forEach((p) => events.push({
@@ -93,12 +143,12 @@ function renderHubActivitySummary(s) {
   const healthCls = s.heartbeatHealthPct == null ? '' : s.heartbeatHealthPct >= 95 ? 'success' : s.heartbeatHealthPct >= 70 ? 'pending' : 'failed';
   const hitCls = s.assetHitRate == null ? '' : s.assetHitRate >= 50 ? 'success' : s.assetHitRate >= 20 ? 'pending' : 'failed';
   $('hub-activity-summary').innerHTML =
-    statBox('Heartbeat health', s.heartbeatHealthPct == null ? '—' : s.heartbeatHealthPct + '%', healthCls) +
-    statBox('Asset hit rate', s.assetHitRate == null ? '—' : s.assetHitRate + '%', hitCls) +
-    statBox('Events (24h)', String(s.last24h ?? 0)) +
-    statBox('Latency p50/p95', s.latencyP50 == null ? '—' : (s.latencyP50 + ' / ' + (s.latencyP95 ?? '—') + ' ms')) +
-    statBox('Last hello OK', formatTime(s.lastHelloOk)) +
-    statBox('Last heartbeat OK', formatTime(s.lastHeartbeatOk));
+    statBox(t('label.heartbeatHealth'), s.heartbeatHealthPct == null ? '—' : s.heartbeatHealthPct + '%', healthCls) +
+    statBox(t('label.assetHitRate'), s.assetHitRate == null ? '—' : s.assetHitRate + '%', hitCls) +
+    statBox(t('label.events24h'), String(s.last24h ?? 0)) +
+    statBox(t('label.latencyP50P95'), s.latencyP50 == null ? '—' : (s.latencyP50 + ' / ' + (s.latencyP95 ?? '—') + ' ms')) +
+    statBox(t('label.lastHelloOk'), formatTime(s.lastHelloOk)) +
+    statBox(t('label.lastHeartbeatOk'), formatTime(s.lastHeartbeatOk));
 }
 
 function bindHubActivityFilters() {
@@ -134,7 +184,7 @@ function renderHubActivityTable() {
 
   if (!filtered.length) {
     $('hub-activity').innerHTML = HUB_ACTIVITY_STATE.events.length
-      ? '<p class="muted">No events match the current filters.</p>'
+      ? '<p class="muted">' + t('message.noFilterEvents') + '</p>'
       : hubEmptyHint(HUB_ACTIVITY_STATE.hasProxy);
     return;
   }
@@ -145,9 +195,9 @@ function renderHubActivityTable() {
     const cls = ok ? 'ok' : fail ? 'fail' : 'neutral';
     return '<tr class="' + cls + '">' +
       '<td>' + esc(formatTime(e.time)) + '</td>' +
-      '<td><span class="pill ' + esc(e.layer) + '">' + esc(e.layer) + '</span></td>' +
+      '<td><span class="pill ' + esc(e.layer) + '">' + esc(t('filter.' + e.layer, {}, e.layer)) + '</span></td>' +
       '<td><span class="pill ' + esc(e.kind || '-') + '">' + esc(e.kind || '-') + '</span></td>' +
-      '<td><span class="status-indicator ' + (ok ? 'success' : fail ? 'failed' : 'unknown') + '"></span>' + esc(e.outcome || '-') + '</td>' +
+      '<td><span class="status-indicator ' + (ok ? 'status-success' : fail ? 'status-failed' : 'status-skipped') + '"></span>' + esc(valueLabel(e.outcome || '-')) + '</td>' +
       '<td>' + (e.statusCode ?? '—') + '</td>' +
       '<td>' + (e.latencyMs == null ? '—' : e.latencyMs + ' ms') + '</td>' +
       '<td class="lifecycle-error">' + esc(e.title || '') + (e.meta ? ' <span class="muted small">' + esc(e.meta) + '</span>' : '') + (e.error ? ' <span class="status-failed">' + esc(e.error) + '</span>' : '') + '</td>' +
@@ -155,15 +205,15 @@ function renderHubActivityTable() {
   }).join('');
 
   $('hub-activity').innerHTML = '<table class="data-table lifecycle-table">' +
-    '<thead><tr><th>Time</th><th>Layer</th><th>Kind</th><th>Outcome</th><th>Status</th><th>Latency</th><th>Detail</th></tr></thead>' +
+    tableHeader(['table.time', 'table.layer', 'table.kind', 'table.outcome', 'table.status', 'table.latency', 'table.detail']) +
     '<tbody>' + rows + '</tbody></table>';
 }
 
 function hubEmptyHint(hasProxy) {
   if (hasProxy) {
-    return '<p class="muted">Proxy is running but no Hub events recorded yet — the next heartbeat tick will populate this table.</p>';
+    return '<p class="muted">' + t('message.proxyRunningNoHub') + '</p>';
   }
-  return '<p class="muted">No Hub activity recorded yet. Hello/heartbeat/ATP events are produced by the proxy daemon — start it with <code>evolver run</code> (or <code>evolver fetch &lt;asset&gt;</code> to log a one-shot fetch).</p>';
+  return '<p class="muted">' + t('message.noHubActivity') + '</p>';
 }
 
 function renderAgentStream(mailbox, sessions, dms) {
@@ -181,7 +231,7 @@ function renderAgentStream(mailbox, sessions, dms) {
     time: s.created_at || s.updated_at,
     action: 'session_' + (s.status || 'active'),
     title: s.session_id || s.id || '-',
-    meta: 'with ' + (s.peer || s.peer_node_id || '-'),
+    meta: t('label.withPeer') + ' ' + (s.peer || s.peer_node_id || '-'),
     detail: s,
   }));
   (dms || []).forEach((d) => items.push({
@@ -194,7 +244,7 @@ function renderAgentStream(mailbox, sessions, dms) {
   }));
 
   if (!items.length) {
-    $('agent-stream').innerHTML = '<p class="muted">No agent interactions yet.</p>';
+    $('agent-stream').innerHTML = '<p class="muted">' + t('message.noAgentInteractions') + '</p>';
     return;
   }
   items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
@@ -227,7 +277,7 @@ function renderInteractionCharts(calls, atpProofs, mailbox) {
       labelLine: { show: false },
       data: Object.keys(actionCounts).length
         ? Object.entries(actionCounts).map(([name, value]) => ({ name, value }))
-        : [{ name: 'no calls', value: 1, itemStyle: { color: '#444' } }],
+        : [{ name: t('value.no_calls'), value: 1, itemStyle: { color: '#444' } }],
     }],
   });
 
@@ -249,7 +299,7 @@ function renderInteractionCharts(calls, atpProofs, mailbox) {
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '4%', bottom: '5%', containLabel: true },
     xAxis: { type: 'value', axisLabel: { color: textColor }, splitLine: { lineStyle: { color: isDark ? '#2c3235' : '#e4e7eb' } } },
-    yAxis: { type: 'category', data: Object.keys(typeCounts).length ? Object.keys(typeCounts) : ['no messages'], axisLabel: { color: textColor } },
+    yAxis: { type: 'category', data: Object.keys(typeCounts).length ? Object.keys(typeCounts) : [t('value.no_messages')], axisLabel: { color: textColor } },
     series: [{
       type: 'bar',
       data: Object.keys(typeCounts).length ? Object.values(typeCounts) : [0],
@@ -277,23 +327,184 @@ function bucketByDay(items, days) {
 
 function renderProxySnapshots(snapshots) {
   if (!snapshots || !Object.keys(snapshots).length) {
-    $('proxy-snapshots').innerHTML = '<p class="muted snapshot-empty">Proxy not running. Start <code>evolver run</code> to enable live snapshots.</p>';
+    $('proxy-snapshots').innerHTML = proxyStartEmptyMarkup();
+    bindProxyStartButton();
     return;
   }
   $('proxy-snapshots').innerHTML = Object.entries(snapshots).map(([key, snap]) => {
-    const ok = snap?.ok;
-    const dot = '<span class="status-indicator ' + (ok ? 'status-success' : 'status-failed') + '"></span>';
-    const detail = ok && snap.body
-      ? (Array.isArray(snap.body) ? snap.body.length + ' items' : Object.keys(snap.body).length + ' fields')
-      : (snap?.error || 'unavailable');
-    return '<div class="snapshot-card"><div>' + dot + '<strong>' + esc(key) + '</strong></div>' +
-      '<div class="muted small">' + esc(detail) + '</div></div>';
+    const dot = '<span class="status-indicator ' + snapshotStatusClass(snap) + '"></span>';
+    return '<div class="snapshot-card">' +
+      '<button class="snapshot-detail-button" type="button" data-snapshot-detail="' + esc(key) + '" title="' + esc(t('action.viewDetails')) + '" aria-label="' + esc(t('action.viewDetails')) + '">i</button>' +
+      '<div class="snapshot-card-title">' + dot + '<strong>' + esc(snapshotServiceTitle(key)) + '</strong></div>' +
+      '<div class="muted small">' + esc(snapshotSummary(snap)) + '</div></div>';
   }).join('');
+  bindSnapshotDetails(snapshots);
+}
+
+function proxyStartEmptyMarkup() {
+  return '<div class="proxy-start snapshot-empty">' +
+    '<p class="muted">' + t('message.proxyNotRunningSnapshots') + '</p>' +
+    '<div class="proxy-start-actions">' +
+      '<button id="proxy-start-button" type="button">' + esc(t('action.startProxy')) + '</button>' +
+      '<span id="proxy-start-status" class="muted small proxy-start-status">' + esc(t('message.proxyStartHint')) + '</span>' +
+    '</div>' +
+    '</div>';
+}
+
+function bindProxyStartButton() {
+  const button = $('proxy-start-button');
+  const status = $('proxy-start-status');
+  if (!button || !status || button._bound) return;
+  button._bound = true;
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    status.className = 'muted small proxy-start-status';
+    status.textContent = t('message.proxyStarting');
+    try {
+      const result = await apiPost('/webui/proxy/start', {});
+      status.className = 'small proxy-start-status success';
+      status.textContent = result.alreadyRunning ? t('message.proxyAlreadyRunning') : t('message.proxyStarted');
+      await loadInteractions();
+    } catch (err) {
+      status.className = 'small proxy-start-status error';
+      status.textContent = t('message.proxyStartFailed', { message: err.message });
+      button.disabled = false;
+    }
+  });
+}
+
+function snapshotServiceMeta(key) {
+  return SNAPSHOT_SERVICE_META[key] || {
+    title: '',
+    description: 'snapshot.unknown.description',
+    features: 'snapshot.unknown.features',
+    endpoint: '-',
+  };
+}
+
+function snapshotServiceTitle(key) {
+  const meta = snapshotServiceMeta(key);
+  return meta.title ? t(meta.title, {}, key) : key;
+}
+
+function snapshotServiceFeatures(key) {
+  const raw = t(snapshotServiceMeta(key).features, {}, '');
+  return String(raw || '').split('|').map((item) => item.trim()).filter(Boolean);
+}
+
+function isHubNotConfiguredSnapshot(snap) {
+  const text = String(snap?.error || snap?.body?.error || snap?.body?.status || snap?.body?.note || '');
+  return snap?.body?.hub_configured === false || /hub[_ ]not[_ ]configured|Hub not configured/i.test(text);
+}
+
+function snapshotStatusClass(snap) {
+  if (!snap || !snap.ok) return 'status-failed';
+  if (isHubNotConfiguredSnapshot(snap)) return 'status-warning';
+  if (snap.body && snap.body.error) return 'status-warning';
+  return 'status-success';
+}
+
+function snapshotStateLabel(snap) {
+  if (!snap || !snap.ok) return t('state.unavailable');
+  if (isHubNotConfiguredSnapshot(snap)) return t('state.hubNotConfigured');
+  if (snap.body && snap.body.error) return valueLabel(snap.body.error);
+  return t('state.available');
+}
+
+function snapshotSummary(snap) {
+  if (!snap) return t('message.unavailable');
+  if (!snap.ok) return snap.error || snap.body?.error || t('message.unavailable');
+  if (isHubNotConfiguredSnapshot(snap)) return t('message.hubNotConfigured');
+  if (snap.body && snap.body.error) return valueLabel(snap.body.error);
+  if (!snap.body) return t('message.noSnapshotBody');
+  if (Array.isArray(snap.body)) return t('message.itemsWithCount', { count: snap.body.length });
+  if (typeof snap.body === 'object') {
+    if (typeof snap.body.count === 'number') return t('message.itemsWithCount', { count: snap.body.count });
+    return t('message.fieldsWithCount', { count: Object.keys(snap.body).length });
+  }
+  return String(snap.body);
+}
+
+function bindSnapshotDetails(snapshots) {
+  document.querySelectorAll('[data-snapshot-detail]').forEach((button) => {
+    if (button._bound) return;
+    button._bound = true;
+    button.addEventListener('click', () => {
+      const key = button.getAttribute('data-snapshot-detail');
+      openSnapshotDetails(key, snapshots[key]);
+    });
+  });
+}
+
+function ensureSnapshotDetailModal() {
+  let modal = $('snapshot-detail-modal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'snapshot-detail-modal';
+  modal.className = 'snapshot-modal-backdrop';
+  modal.hidden = true;
+  modal.innerHTML = '<div class="snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="snapshot-detail-title">' +
+    '<button id="snapshot-detail-close" class="snapshot-modal-close" type="button" aria-label="' + esc(t('action.close')) + '">x</button>' +
+    '<div class="eyebrow" id="snapshot-detail-eyebrow"></div>' +
+    '<h3 id="snapshot-detail-title"></h3>' +
+    '<p id="snapshot-detail-description" class="muted"></p>' +
+    '<dl class="snapshot-detail-meta">' +
+      '<dt id="snapshot-detail-endpoint-label"></dt><dd id="snapshot-detail-endpoint"></dd>' +
+      '<dt id="snapshot-detail-state-label"></dt><dd id="snapshot-detail-state"></dd>' +
+    '</dl>' +
+    '<h4 id="snapshot-detail-features-label"></h4>' +
+    '<ul id="snapshot-detail-features" class="snapshot-detail-list"></ul>' +
+    '<h4 id="snapshot-detail-payload-label"></h4>' +
+    '<pre id="snapshot-detail-payload" class="snapshot-detail-payload"></pre>' +
+    '</div>';
+  document.body.appendChild(modal);
+  $('snapshot-detail-close').addEventListener('click', closeSnapshotDetails);
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) closeSnapshotDetails();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !modal.hidden) closeSnapshotDetails();
+  });
+  return modal;
+}
+
+function openSnapshotDetails(key, snap) {
+  const modal = ensureSnapshotDetailModal();
+  const meta = snapshotServiceMeta(key);
+  $('snapshot-detail-eyebrow').textContent = t('label.proxyService');
+  $('snapshot-detail-title').textContent = snapshotServiceTitle(key);
+  $('snapshot-detail-description').textContent = t(meta.description, {}, '');
+  $('snapshot-detail-endpoint-label').textContent = t('label.endpoint');
+  $('snapshot-detail-endpoint').textContent = meta.endpoint || '-';
+  $('snapshot-detail-state-label').textContent = t('label.currentState');
+  $('snapshot-detail-state').textContent = snapshotStateLabel(snap);
+  $('snapshot-detail-features-label').textContent = t('label.serviceFeatures');
+  $('snapshot-detail-features').innerHTML = snapshotServiceFeatures(key).map((item) => '<li>' + esc(item) + '</li>').join('');
+  $('snapshot-detail-payload-label').textContent = t('label.currentReturn');
+  $('snapshot-detail-payload').textContent = snapshotPayloadPreview(snap);
+  modal.hidden = false;
+  $('snapshot-detail-close').focus();
+}
+
+function closeSnapshotDetails() {
+  const modal = $('snapshot-detail-modal');
+  if (modal) modal.hidden = true;
+}
+
+function snapshotPayloadPreview(snap) {
+  if (!snap) return t('message.unavailable');
+  const source = snap.body === undefined ? snap : snap.body;
+  try {
+    const json = JSON.stringify(source, null, 2);
+    return json.length > 2400 ? json.slice(0, 2400) + '\\n...' : json;
+  } catch (_) {
+    return String(source);
+  }
 }
 
 async function loadInteractions() {
-  $('hub-activity').innerHTML = '<p class="muted">Loading...</p>';
-  $('agent-stream').innerHTML = '<p class="muted">Loading...</p>';
+  $('hub-activity').innerHTML = '<p class="muted">' + t('state.loading') + '</p>';
+  $('agent-stream').innerHTML = '<p class="muted">' + t('state.loading') + '</p>';
   try {
     const [callsResult, interactions, lifecycle] = await Promise.all([
       api('/webui/assets/calls?limit=500'),
@@ -319,7 +530,7 @@ async function loadInteractions() {
     renderInteractionCharts(calls, Array.isArray(proofs) ? proofs : [], mailbox);
     renderProxySnapshots(interactions.proxySnapshots);
   } catch (err) {
-    $('hub-activity').innerHTML = '<p class="status-failed">Failed: ' + esc(err.message) + '</p>';
+    $('hub-activity').innerHTML = '<p class="status-failed">' + esc(t('message.failed', { message: err.message })) + '</p>';
   }
 }
 
