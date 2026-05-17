@@ -7,31 +7,43 @@ const os = require('os');
 const SETTINGS_DIR = path.join(os.homedir(), '.evolver');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json');
 
+function getSettingsDir() {
+  return process.env.EVOLVER_SETTINGS_DIR || SETTINGS_DIR;
+}
+
+function getSettingsFile() {
+  return process.env.EVOLVER_SETTINGS_FILE || path.join(getSettingsDir(), 'settings.json');
+}
+
 function readSettings() {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    const settingsFile = getSettingsFile();
+    if (fs.existsSync(settingsFile)) {
+      return JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
     }
   } catch {}
   return {};
 }
 
 function writeSettings(data) {
-  if (!fs.existsSync(SETTINGS_DIR)) {
-    fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+  const settingsFile = getSettingsFile();
+  const settingsDir = path.dirname(settingsFile);
+  if (!fs.existsSync(settingsDir)) {
+    fs.mkdirSync(settingsDir, { recursive: true });
   }
   const current = readSettings();
   const merged = { ...current, ...data };
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), 'utf8');
+  fs.writeFileSync(settingsFile, JSON.stringify(merged, null, 2), 'utf8');
   return merged;
 }
 
 function clearSettings() {
   try {
-    if (fs.existsSync(SETTINGS_FILE)) {
+    const settingsFile = getSettingsFile();
+    if (fs.existsSync(settingsFile)) {
       const current = readSettings();
       delete current.proxy;
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(current, null, 2), 'utf8');
+      fs.writeFileSync(settingsFile, JSON.stringify(current, null, 2), 'utf8');
     }
   } catch {}
 }
@@ -61,4 +73,15 @@ function getProxyUrl() {
   return settings.proxy?.url || null;
 }
 
-module.exports = { readSettings, writeSettings, clearSettings, clearIfStale, isStaleProxy, getProxyUrl, SETTINGS_DIR, SETTINGS_FILE };
+module.exports = {
+  readSettings,
+  writeSettings,
+  clearSettings,
+  clearIfStale,
+  isStaleProxy,
+  getProxyUrl,
+  getSettingsDir,
+  getSettingsFile,
+  SETTINGS_DIR,
+  SETTINGS_FILE,
+};

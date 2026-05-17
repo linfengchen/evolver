@@ -1,7 +1,7 @@
 'use strict';
 
 const http = require('http');
-const { buildWebUiRoutes } = require('./routes');
+const { buildWebUiRoutes, stopManagedProxy } = require('./routes');
 const { getIndexHtml, getClientJs, getStylesCss } = require('../client/static');
 
 const DEFAULT_WEBUI_PORT = 19821;
@@ -36,6 +36,7 @@ class WebUiServer {
     if (!this.server) return;
     await new Promise((resolve) => this.server.close(resolve));
     this.server = null;
+    await stopManagedProxy();
   }
 
   async _handle(req, res) {
@@ -49,7 +50,8 @@ class WebUiServer {
 
     try {
       const query = Object.fromEntries(url.searchParams);
-      const result = await matched.handler({ query, params: matched.params });
+      const body = await readJsonBody(req);
+      const result = await matched.handler({ query, params: matched.params, body, server: this });
       return sendJson(res, result.status || 200, result.body || result);
     } catch (err) {
       this.logger.error('[webui] request failed:', err && err.message || err);
@@ -62,6 +64,39 @@ class WebUiServer {
       });
     }
   }
+}
+
+function readJsonBody(req) {
+  if (req.method === 'GET' || req.method === 'HEAD') return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > 64 * 1024) {
+        const err = new Error('Request body too large');
+        err.statusCode = 413;
+        err.code = 'BODY_TOO_LARGE';
+        reject(err);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8').trim();
+      if (!raw) return resolve(null);
+      try {
+        resolve(JSON.parse(raw));
+      } catch (_) {
+        const err = new Error('Invalid JSON body');
+        err.statusCode = 400;
+        err.code = 'INVALID_JSON';
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 function matchRoute(routes, method, pathname) {
@@ -123,4 +158,5 @@ module.exports = {
   WebUiServer,
   DEFAULT_WEBUI_PORT,
   matchPath,
+  readJsonBody,
 };

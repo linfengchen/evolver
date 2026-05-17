@@ -1,13 +1,28 @@
 'use strict';
 
 exports.commonJs = `
-const state = { selectedRunId: null, charts: {}, currentTab: 'overview', currentAsset: 'genes' };
+const state = { selectedRunId: null, charts: {}, currentTab: 'overview', currentAsset: 'genes', lang: 'en' };
 const $ = (id) => document.getElementById(id);
 
 async function api(path) {
   const res = await fetch(path);
   const body = await res.json();
   if (!res.ok) throw new Error(body.error?.message || 'Request failed');
+  return body;
+}
+
+async function apiPost(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json();
+  if (!res.ok) {
+    const err = new Error(body.error?.message || 'Request failed');
+    err.details = body.error?.details || {};
+    throw err;
+  }
   return body;
 }
 
@@ -47,6 +62,7 @@ function esc(value) {
 function format(value) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof valueLabel === 'function') return valueLabel(value);
   return value;
 }
 
@@ -58,7 +74,7 @@ function formatTime(value) {
 }
 
 function pillList(items, kind) {
-  if (!items || !items.length) return '<span class="muted">none</span>';
+  if (!items || !items.length) return '<span class="muted">' + (typeof t === 'function' ? t('value.none') : 'none') + '</span>';
   return items.map((item) => '<span class="pill ' + (kind || '') + '">' + esc(item) + '</span>').join(' ');
 }
 `;

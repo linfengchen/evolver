@@ -255,6 +255,24 @@ describe('ProxyHttpServer', () => {
     });
   });
 
+  describe('ATP fallback routes', () => {
+    it('returns local policy details when Hub ATP is not configured', async () => {
+      const res = await request(`${baseUrl}/atp/policy`, 'GET');
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, 'hub_not_configured');
+      assert.equal(res.body.hub_configured, false);
+      assert.ok(Array.isArray(res.body.services));
+    });
+
+    it('returns an empty local proof list when Hub ATP is not configured', async () => {
+      const res = await request(`${baseUrl}/atp/proofs?limit=20`, 'GET');
+      assert.equal(res.status, 200);
+      assert.equal(res.body.status, 'hub_not_configured');
+      assert.equal(res.body.hub_configured, false);
+      assert.deepEqual(res.body.proofs, []);
+    });
+  });
+
   describe('DM routes', () => {
     it('POST /dm/send sends a direct message', async () => {
       const res = await request(`${baseUrl}/dm/send`, 'POST', {

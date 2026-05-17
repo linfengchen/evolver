@@ -449,14 +449,64 @@ function buildRoutes(store, proxyHandlers, taskMonitor, extensions) {
       if (query.role) q.role = query.role;
       if (query.status) q.status = query.status;
       if (query.limit) q.limit = query.limit;
-      const result = await proxyHandlers.atpGet('/a2a/atp/proofs', q);
+      if (!proxyHandlers.atpGet) return { body: localAtpProofs(store, q) };
+      let result;
+      try {
+        result = await proxyHandlers.atpGet('/a2a/atp/proofs', q);
+      } catch (err) {
+        if (isHubNotConfigured(err)) return { body: localAtpProofs(store, q) };
+        throw err;
+      }
       return { body: result };
     },
 
     'GET /atp/policy': async () => {
-      const result = await proxyHandlers.atpGet('/a2a/atp/policy');
+      if (!proxyHandlers.atpGet) return { body: localAtpPolicy() };
+      let result;
+      try {
+        result = await proxyHandlers.atpGet('/a2a/atp/policy');
+      } catch (err) {
+        if (isHubNotConfigured(err)) return { body: localAtpPolicy() };
+        throw err;
+      }
       return { body: result };
     },
+  };
+}
+
+function isHubNotConfigured(err) {
+  return err && (err.statusCode === 503 || /Hub not configured/i.test(String(err.message || err)));
+}
+
+function localAtpPolicy() {
+  const { resolveAtpServices, getAtpMode } = require('../../atp/defaultHandler');
+  return {
+    status: 'hub_not_configured',
+    source: 'local',
+    hub_configured: false,
+    mode: getAtpMode(),
+    services: resolveAtpServices(),
+    policy: {
+      routing_modes: ['fastest', 'cheapest', 'auction', 'swarm'],
+      verify_modes: ['auto', 'ai_judge', 'bilateral'],
+      default_budget_credits: 10,
+      local_fallback: true,
+    },
+    note: 'Configure A2A_HUB_URL or EVOMAP_HUB_URL to load live ATP marketplace policy from the Hub.',
+  };
+}
+
+function localAtpProofs(store, query = {}) {
+  return {
+    status: 'hub_not_configured',
+    source: 'local',
+    hub_configured: false,
+    node_id: store.getState('node_id') || null,
+    query,
+    proofs: [],
+    orders: [],
+    count: 0,
+    note: 'Configure A2A_HUB_URL or EVOMAP_HUB_URL to list ATP delivery proofs and order settlement records from the Hub.',
   };
 }
 
